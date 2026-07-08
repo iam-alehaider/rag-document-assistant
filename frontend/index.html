@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>RAG Document Assistant</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col">
+
+  <header class="border-b border-slate-800 px-6 py-4 flex items-center justify-between">
+    <h1 class="text-lg font-semibold">📄 RAG Document Assistant</h1>
+    <div id="auth-status" class="text-sm text-slate-400"></div>
+  </header>
+
+  <main class="flex-1 flex overflow-hidden">
+    <!-- Auth panel -->
+    <section id="auth-panel" class="w-full max-w-md mx-auto mt-20 p-6 bg-slate-900 rounded-xl h-fit">
+      <div id="auth-tabs" class="flex mb-4 gap-2 text-sm">
+        <button id="tab-login" class="px-3 py-1 rounded bg-indigo-600">Login</button>
+        <button id="tab-register" class="px-3 py-1 rounded bg-slate-800">Register</button>
+      </div>
+      <input id="email" type="email" placeholder="Email" class="w-full mb-2 px-3 py-2 rounded bg-slate-800 outline-none" />
+      <input id="password" type="password" placeholder="Password" class="w-full mb-4 px-3 py-2 rounded bg-slate-800 outline-none" />
+      <button id="auth-submit" class="w-full py-2 rounded bg-indigo-600 hover:bg-indigo-500 font-medium">Login</button>
+      <p id="auth-error" class="text-red-400 text-sm mt-2"></p>
+    </section>
+
+    <!-- App panel (hidden until logged in) -->
+    <section id="app-panel" class="hidden flex-1 flex">
+      <aside class="w-72 border-r border-slate-800 p-4 flex flex-col gap-3 overflow-y-auto">
+        <label class="text-sm text-slate-400">Upload a document</label>
+        <input id="file-input" type="file" accept=".pdf,.txt,.md" class="text-sm" />
+        <button id="upload-btn" class="py-2 rounded bg-indigo-600 hover:bg-indigo-500 text-sm font-medium">Upload</button>
+        <p id="upload-status" class="text-xs text-slate-400"></p>
+        <hr class="border-slate-800 my-2" />
+        <label class="text-sm text-slate-400">Your documents</label>
+        <div id="doc-list" class="flex flex-col gap-1 text-sm"></div>
+      </aside>
+
+      <div class="flex-1 flex flex-col">
+        <div id="chat-log" class="flex-1 overflow-y-auto p-6 flex flex-col gap-4"></div>
+        <div class="border-t border-slate-800 p-4 flex gap-2">
+          <input id="question-input" type="text" placeholder="Ask a question about your documents..."
+                 class="flex-1 px-3 py-2 rounded bg-slate-800 outline-none" />
+          <button id="ask-btn" class="px-4 py-2 rounded bg-indigo-600 hover:bg-indigo-500 font-medium">Ask</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
