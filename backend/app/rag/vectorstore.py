@@ -1,7 +1,7 @@
 """
 Thin wrapper around Qdrant (open-source vector DB).
 Works identically against a local Docker Qdrant instance or the free
-1GB Qdrant Cloud tier — only QDRANT_URL / QDRANT_API_KEY change.
+1GB Qdrant Cloud tier - only QDRANT_URL / QDRANT_API_KEY change.
 """
 import uuid
 from functools import lru_cache
@@ -29,6 +29,19 @@ def ensure_collection():
                 size=settings.EMBEDDING_DIM, distance=qmodels.Distance.COSINE
             ),
         )
+
+    for field_name, schema in [
+        ("owner_id", qmodels.PayloadSchemaType.INTEGER),
+        ("document_id", qmodels.PayloadSchemaType.KEYWORD),
+    ]:
+        try:
+            client.create_payload_index(
+                collection_name=settings.QDRANT_COLLECTION,
+                field_name=field_name,
+                field_schema=schema,
+            )
+        except Exception:
+            pass
 
 
 def upsert_chunks(
@@ -63,6 +76,7 @@ def search(
     top_k: int = None,
 ):
     client = get_client()
+    ensure_collection()
     top_k = top_k or settings.TOP_K
 
     must_filters = [qmodels.FieldCondition(key="owner_id", match=qmodels.MatchValue(value=owner_id))]
