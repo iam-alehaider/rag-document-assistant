@@ -18,7 +18,7 @@ Keep answers concise and cite which excerpt (by number) you used."""
 
 
 def _client() -> Groq:
-    return Groq(api_key=settings.GROQ_API_KEY)
+    return Groq(api_key=settings.GROQ_API_KEY.get_secret_value())
 
 
 def build_context_block(chunks: list[str]) -> str:

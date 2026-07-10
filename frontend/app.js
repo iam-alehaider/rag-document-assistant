@@ -2,6 +2,7 @@ let mode = "login"; // or "register"
 let token = localStorage.getItem("rag_token") || null;
 let sessionId = null;
 let activeDocId = null;
+let pollTimer = null;
 
 const $ = (id) => document.getElementById(id);
 
@@ -61,28 +62,50 @@ async function showApp() {
   await loadDocuments();
 }
 
+function statusBadge(status) {
+  if (status === "ready") return `<span class="text-xs text-green-400">ready</span>`;
+  if (status === "failed") return `<span class="text-xs text-red-400">failed</span>`;
+  return `<span class="text-xs text-amber-400">processing…</span>`;
+}
+
 async function loadDocuments() {
   const res = await fetch(`${API_BASE_URL}/documents`, { headers: authHeaders() });
   if (!res.ok) return;
   const docs = await res.json();
   const list = $("doc-list");
   list.innerHTML = "";
+
+  let anyProcessing = false;
+
   docs.forEach((doc) => {
+    if (doc.status === "processing") anyProcessing = true;
     const el = document.createElement("div");
     el.className = "px-2 py-1 rounded bg-slate-800 cursor-pointer hover:bg-slate-700 flex justify-between items-center";
-    el.innerHTML = `<span class="truncate">${doc.filename}</span><span class="text-xs text-slate-400">${doc.chunks} chunks</span>`;
+    el.innerHTML = `<span class="truncate">${doc.filename}</span>${statusBadge(doc.status)}`;
     el.onclick = () => {
+      if (doc.status !== "ready") return;
       activeDocId = doc.id;
       addMessage("system", `Scoped to: ${doc.filename}`);
     };
     list.appendChild(el);
   });
+
+  // Poll every 3s while anything is still processing, so status flips to
+  // "ready" without the user needing to refresh.
+  if (anyProcessing && !pollTimer) {
+    pollTimer = setInterval(async () => {
+      await loadDocuments();
+    }, 3000);
+  } else if (!anyProcessing && pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
 }
 
 $("upload-btn").onclick = async () => {
   const file = $("file-input").files[0];
   if (!file) return;
-  $("upload-status").textContent = "Uploading & indexing...";
+  $("upload-status").textContent = "Uploading...";
 
   const form = new FormData();
   form.append("file", file);
@@ -97,7 +120,7 @@ $("upload-btn").onclick = async () => {
     $("upload-status").textContent = "Upload failed: " + (await res.json()).detail;
     return;
   }
-  $("upload-status").textContent = "Indexed successfully.";
+  $("upload-status").textContent = "Uploaded — indexing in the background.";
   await loadDocuments();
 };
 

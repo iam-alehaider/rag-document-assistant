@@ -34,6 +34,8 @@ class Document(Base):
     owner_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     filename = Column(String, nullable=False)
     chunks = Column(Integer, default=0)
+    status = Column(String, default="processing")  # processing | ready | failed
+    error_message = Column(String, nullable=True)
     uploaded_at = Column(DateTime, default=datetime.utcnow)
 
     owner = relationship("User", back_populates="documents")
@@ -52,6 +54,11 @@ class ChatLog(Base):
 
 
 def init_db():
+    """
+    Dev convenience only. In production, schema changes go through Alembic
+    migrations (`alembic upgrade head`), run as part of deployment - not
+    through create_all(), which can't handle schema changes safely.
+    """
     Base.metadata.create_all(bind=engine)
 
 

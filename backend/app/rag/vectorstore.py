@@ -1,7 +1,7 @@
 """
 Thin wrapper around Qdrant (open-source vector DB).
 Works identically against a local Docker Qdrant instance or the free
-1GB Qdrant Cloud tier - only QDRANT_URL / QDRANT_API_KEY change.
+1GB Qdrant Cloud tier — only QDRANT_URL / QDRANT_API_KEY change.
 """
 import uuid
 from functools import lru_cache
@@ -16,7 +16,7 @@ settings = get_settings()
 
 @lru_cache
 def get_client() -> QdrantClient:
-    return QdrantClient(url=settings.QDRANT_URL, api_key=settings.QDRANT_API_KEY or None)
+    return QdrantClient(url=settings.QDRANT_URL, api_key=settings.QDRANT_API_KEY.get_secret_value() or None)
 
 
 def ensure_collection():
@@ -30,6 +30,9 @@ def ensure_collection():
             ),
         )
 
+    # Qdrant Cloud requires an explicit index on any payload field used in a
+    # filter. Creating an index that already exists is a no-op, so this is
+    # safe to call every time (idempotent).
     for field_name, schema in [
         ("owner_id", qmodels.PayloadSchemaType.INTEGER),
         ("document_id", qmodels.PayloadSchemaType.KEYWORD),
@@ -41,6 +44,7 @@ def ensure_collection():
                 field_schema=schema,
             )
         except Exception:
+            # Index already exists - safe to ignore
             pass
 
 

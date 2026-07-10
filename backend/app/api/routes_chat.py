@@ -2,23 +2,28 @@ import time
 import uuid
 import logging
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 
 from app.auth import get_current_user
+from app.config import get_settings
 from app.db import get_db, User, ChatLog
 from app.models import ChatRequest, ChatResponse, SourceChunk
 from app.rag.embeddings import embed_query
 from app.rag.vectorstore import search
 from app.rag.llm import generate_answer
 from app.metrics import RAG_QUERY_LATENCY, RAG_QUERY_COUNT
+from app.rate_limit import limiter
 
+settings = get_settings()
 logger = logging.getLogger("rag.chat")
 router = APIRouter(prefix="/chat", tags=["chat"])
 
 
 @router.post("", response_model=ChatResponse)
+@limiter.limit(settings.RATE_LIMIT_CHAT)
 def chat(
+    request: Request,
     payload: ChatRequest,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),

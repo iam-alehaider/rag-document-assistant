@@ -30,6 +30,8 @@ class DocumentOut(BaseModel):
     id: str
     filename: str
     chunks: int
+    status: str
+    error_message: Optional[str] = None
     uploaded_at: datetime
 
 
