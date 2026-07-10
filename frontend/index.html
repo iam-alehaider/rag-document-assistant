@@ -4,52 +4,127 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>DocuMind</title>
-<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css" />
 </head>
-<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col">
+<body>
 
-  <header class="border-b border-slate-800 px-6 py-4 flex items-center justify-between">
-    <h1 class="text-lg font-semibold">📄 DocuMind</h1>
-    <div id="auth-status" class="text-sm text-slate-400"></div>
-  </header>
-
-  <main class="flex-1 flex overflow-hidden">
-    <!-- Auth panel -->
-    <section id="auth-panel" class="w-full max-w-md mx-auto mt-20 p-6 bg-slate-900 rounded-xl h-fit">
-      <div id="auth-tabs" class="flex mb-4 gap-2 text-sm">
-        <button id="tab-login" class="px-3 py-1 rounded bg-indigo-600">Login</button>
-        <button id="tab-register" class="px-3 py-1 rounded bg-slate-800">Register</button>
+  <!-- ===================== AUTH SCREEN ===================== -->
+  <section id="auth-panel" class="auth-screen">
+    <div class="auth-card">
+      <div class="auth-brand">
+        <span class="brand-mark">D</span>
+        <span class="brand-name">DocuMind</span>
       </div>
-      <input id="email" type="email" placeholder="Email" class="w-full mb-2 px-3 py-2 rounded bg-slate-800 outline-none" />
-      <input id="password" type="password" placeholder="Password" class="w-full mb-4 px-3 py-2 rounded bg-slate-800 outline-none" />
-      <button id="auth-submit" class="w-full py-2 rounded bg-indigo-600 hover:bg-indigo-500 font-medium">Login</button>
-      <p id="auth-error" class="text-red-400 text-sm mt-2"></p>
-    </section>
+      <p class="auth-subtitle">Sign in to query your documents.</p>
 
-    <!-- App panel (hidden until logged in) -->
-    <section id="app-panel" class="hidden flex-1 flex">
-      <aside class="w-72 border-r border-slate-800 p-4 flex flex-col gap-3 overflow-y-auto">
-        <label class="text-sm text-slate-400">Upload a document</label>
-        <input id="file-input" type="file" accept=".pdf,.txt,.md" class="text-sm" />
-        <button id="upload-btn" class="py-2 rounded bg-indigo-600 hover:bg-indigo-500 text-sm font-medium">Upload</button>
-        <p id="upload-status" class="text-xs text-slate-400"></p>
-        <hr class="border-slate-800 my-2" />
-        <label class="text-sm text-slate-400">Your documents</label>
-        <div id="doc-list" class="flex flex-col gap-1 text-sm"></div>
-      </aside>
+      <div id="auth-tabs" class="auth-tabs">
+        <button id="tab-login" class="auth-tab is-active">Sign in</button>
+        <button id="tab-register" class="auth-tab">Create account</button>
+      </div>
 
-      <div class="flex-1 flex flex-col">
-        <div id="chat-log" class="flex-1 overflow-y-auto p-6 flex flex-col gap-4"></div>
-        <div class="border-t border-slate-800 p-4 flex gap-2">
-          <input id="question-input" type="text" placeholder="Ask a question about your documents..."
-                 class="flex-1 px-3 py-2 rounded bg-slate-800 outline-none" />
-          <button id="ask-btn" class="px-4 py-2 rounded bg-indigo-600 hover:bg-indigo-500 font-medium">Ask</button>
+      <label class="field-label" for="email">Email</label>
+      <input id="email" type="email" placeholder="you@company.com" class="field-input" autocomplete="username" />
+
+      <label class="field-label" for="password">Password</label>
+      <input id="password" type="password" placeholder="••••••••" class="field-input" autocomplete="current-password" />
+
+      <button id="auth-submit" class="btn btn-primary btn-block">Sign in</button>
+      <p id="auth-error" class="auth-message"></p>
+    </div>
+  </section>
+
+  <!-- ===================== APP SHELL ===================== -->
+  <div id="app-panel" class="app-shell hidden">
+
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <span class="brand-mark">D</span>
+        <span class="brand-name">DocuMind</span>
+      </div>
+
+      <button id="new-chat-btn" class="btn btn-primary btn-block sidebar-new-chat">
+        <span>New conversation</span>
+      </button>
+
+      <div class="sidebar-section">
+        <div class="sidebar-section-label">Conversations</div>
+        <div id="session-list" class="session-list">
+          <p class="empty-hint">No conversations yet.</p>
         </div>
       </div>
-    </section>
-  </main>
-  
+
+      <div class="sidebar-section sidebar-section-docs">
+        <div class="sidebar-section-label">Documents</div>
+
+        <div class="doc-upload">
+          <input id="file-input" type="file" accept=".pdf,.txt,.md" class="file-input" />
+          <button id="upload-btn" class="btn btn-secondary btn-block">Upload document</button>
+          <p id="upload-status" class="upload-status"></p>
+        </div>
+
+        <div id="doc-list" class="doc-list">
+          <p class="empty-hint">No documents uploaded.</p>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main -->
+    <div class="main-column">
+      <header class="topbar">
+        <div class="topbar-title">
+          <span id="scope-label">All documents</span>
+        </div>
+
+        <div class="user-menu">
+          <button id="user-menu-btn" class="user-avatar-btn">
+            <span id="user-avatar-initial">U</span>
+          </button>
+          <div id="user-menu-dropdown" class="user-dropdown hidden">
+            <div class="user-dropdown-email" id="user-email-display">—</div>
+            <div class="user-dropdown-divider"></div>
+            <button id="logout-btn" class="user-dropdown-item">Log out</button>
+          </div>
+        </div>
+      </header>
+
+      <div id="chat-log" class="chat-log">
+        <div class="chat-empty-state">
+          <div class="chat-empty-icon">💬</div>
+          <h2>Ask something about your documents</h2>
+          <p>Upload a PDF or text file on the left, then ask a question. Answers are grounded only in what you've uploaded.</p>
+        </div>
+      </div>
+
+      <div class="composer">
+        <input id="question-input" type="text" placeholder="Ask a question about your documents…" class="composer-input" />
+        <button id="ask-btn" class="btn btn-primary composer-send">Ask</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== SOURCE EXCERPT MODAL ===================== -->
+  <div id="source-modal" class="modal-backdrop hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div>
+          <div class="modal-filename" id="source-modal-filename">—</div>
+          <div class="modal-meta" id="source-modal-meta">—</div>
+        </div>
+        <button id="source-modal-close" class="modal-close">✕</button>
+      </div>
+      <div class="modal-relevance">
+        <div class="modal-relevance-track">
+          <div class="modal-relevance-fill" id="source-modal-relevance-fill"></div>
+        </div>
+        <span id="source-modal-relevance-pct" class="modal-relevance-pct">—</span>
+      </div>
+      <div class="modal-body" id="source-modal-text">—</div>
+    </div>
+  </div>
+
   <script>window.RAG_API_BASE_URL = "https://rag-document-assistant-7p7o.onrender.com";</script>
   <script src="config.js"></script>
   <script src="app.js"></script>

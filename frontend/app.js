@@ -1,15 +1,16 @@
+
 let mode = "login"; // or "register"
 let token = localStorage.getItem("rag_token") || null;
 let sessionId = null;
 let activeDocId = null;
 let pollTimer = null;
+let lastSources = []; // sources for the most recently rendered assistant message, keyed for modal lookup
 
 const $ = (id) => document.getElementById(id);
 
-// FastAPI validation errors (422) return `detail` as an array of objects,
-// e.g. [{"loc":["body","password"],"msg":"String should have at least 8 characters",...}]
-// while most other errors return `detail` as a plain string. This normalizes
-// either shape into a readable message instead of "[object Object]".
+// FastAPI validation errors (422) return `detail` as an array of objects;
+// most other errors return `detail` as a plain string. Normalize either
+// shape into readable text.
 function extractErrorMessage(err, fallback) {
   if (!err) return fallback;
   const detail = err.detail;
@@ -20,11 +21,26 @@ function extractErrorMessage(err, fallback) {
   return fallback;
 }
 
+function authHeaders() {
+  return { Authorization: `Bearer ${token}` };
+}
+
+function fmtTime(iso) {
+  const d = new Date(iso);
+  const now = new Date();
+  const sameDay = d.toDateString() === now.toDateString();
+  return sameDay
+    ? d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    : d.toLocaleDateString([], { month: "short", day: "numeric" });
+}
+
+/* ===================== Auth ===================== */
+
 function setMode(newMode) {
   mode = newMode;
-  $("tab-login").className = mode === "login" ? "px-3 py-1 rounded bg-indigo-600" : "px-3 py-1 rounded bg-slate-800";
-  $("tab-register").className = mode === "register" ? "px-3 py-1 rounded bg-indigo-600" : "px-3 py-1 rounded bg-slate-800";
-  $("auth-submit").textContent = mode === "login" ? "Login" : "Register";
+  $("tab-login").classList.toggle("is-active", mode === "login");
+  $("tab-register").classList.toggle("is-active", mode === "register");
+  $("auth-submit").textContent = mode === "login" ? "Sign in" : "Create account";
 }
 
 $("tab-login").onclick = () => setMode("login");
@@ -33,7 +49,9 @@ $("tab-register").onclick = () => setMode("register");
 $("auth-submit").onclick = async () => {
   const email = $("email").value.trim();
   const password = $("password").value;
-  $("auth-error").textContent = "";
+  const msg = $("auth-error");
+  msg.textContent = "";
+  msg.className = "auth-message";
 
   try {
     if (mode === "register") {
@@ -47,8 +65,8 @@ $("auth-submit").onclick = async () => {
         throw new Error(extractErrorMessage(err, "Registration failed"));
       }
       setMode("login");
-      $("auth-error").textContent = "Registered! Now log in.";
-      $("auth-error").className = "text-green-400 text-sm mt-2";
+      msg.textContent = "Account created — sign in below.";
+      msg.className = "auth-message is-success";
       return;
     }
 
@@ -66,26 +84,65 @@ $("auth-submit").onclick = async () => {
     localStorage.setItem("rag_token", token);
     showApp();
   } catch (err) {
-    $("auth-error").textContent = err.message;
-    $("auth-error").className = "text-red-400 text-sm mt-2";
+    msg.textContent = err.message;
+    msg.className = "auth-message is-error";
   }
 };
 
-function authHeaders() {
-  return { Authorization: `Bearer ${token}` };
+$("question-input").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") $("ask-btn").click();
+});
+
+function logout() {
+  localStorage.removeItem("rag_token");
+  token = null;
+  sessionId = null;
+  activeDocId = null;
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  $("app-panel").classList.add("hidden");
+  $("auth-panel").classList.remove("hidden");
+  $("email").value = "";
+  $("password").value = "";
 }
+
+/* ===================== App shell ===================== */
 
 async function showApp() {
   $("auth-panel").classList.add("hidden");
   $("app-panel").classList.remove("hidden");
-  $("auth-status").textContent = "Logged in";
-  await loadDocuments();
+  await Promise.all([loadProfile(), loadDocuments(), loadSessions()]);
 }
 
-function statusBadge(status) {
-  if (status === "ready") return `<span class="text-xs text-green-400">ready</span>`;
-  if (status === "failed") return `<span class="text-xs text-red-400">failed</span>`;
-  return `<span class="text-xs text-amber-400">processing…</span>`;
+async function loadProfile() {
+  const res = await fetch(`${API_BASE_URL}/auth/me`, { headers: authHeaders() });
+  if (!res.ok) {
+    if (res.status === 401) logout();
+    return;
+  }
+  const user = await res.json();
+  $("user-email-display").textContent = user.email;
+  $("user-avatar-initial").textContent = user.email[0].toUpperCase();
+}
+
+$("user-menu-btn").onclick = (e) => {
+  e.stopPropagation();
+  $("user-menu-dropdown").classList.toggle("hidden");
+};
+document.addEventListener("click", (e) => {
+  if (!$("user-menu-dropdown").contains(e.target) && e.target !== $("user-menu-btn")) {
+    $("user-menu-dropdown").classList.add("hidden");
+  }
+});
+$("logout-btn").onclick = logout;
+
+/* ===================== Documents ===================== */
+
+function statusClass(status) {
+  return status === "ready" ? "is-ready" : status === "failed" ? "is-failed" : "is-processing";
+}
+
+function statusLabel(status) {
+  return status === "ready" ? "ready" : status === "failed" ? "failed" : "processing…";
 }
 
 async function loadDocuments() {
@@ -95,27 +152,48 @@ async function loadDocuments() {
   const list = $("doc-list");
   list.innerHTML = "";
 
+  if (docs.length === 0) {
+    list.innerHTML = `<p class="empty-hint">No documents uploaded.</p>`;
+  }
+
   let anyProcessing = false;
 
   docs.forEach((doc) => {
     if (doc.status === "processing") anyProcessing = true;
     const el = document.createElement("div");
-    el.className = "px-2 py-1 rounded bg-slate-800 cursor-pointer hover:bg-slate-700 flex justify-between items-center";
-    el.innerHTML = `<span class="truncate">${doc.filename}</span>${statusBadge(doc.status)}`;
-    el.onclick = () => {
+    el.className = `doc-item ${statusClass(doc.status)}${doc.id === activeDocId ? " is-scoped" : ""}`;
+    el.innerHTML = `
+      <span class="doc-name" title="${doc.filename}">${doc.filename}</span>
+      <span class="doc-status ${statusClass(doc.status)}">${statusLabel(doc.status)}</span>
+      <button class="doc-delete" title="Delete document">✕</button>
+    `;
+    el.querySelector(".doc-name").onclick = () => {
       if (doc.status !== "ready") return;
-      activeDocId = doc.id;
-      addMessage("system", `Scoped to: ${doc.filename}`);
+      activeDocId = activeDocId === doc.id ? null : doc.id;
+      $("scope-label").textContent = activeDocId ? doc.filename : "All documents";
+      loadDocuments();
+    };
+    el.querySelector(".doc-status").onclick = el.querySelector(".doc-name").onclick;
+    el.querySelector(".doc-delete").onclick = async (e) => {
+      e.stopPropagation();
+      if (!confirm(`Delete "${doc.filename}"? This can't be undone.`)) return;
+      const delRes = await fetch(`${API_BASE_URL}/documents/${doc.id}`, {
+        method: "DELETE",
+        headers: authHeaders(),
+      });
+      if (delRes.ok) {
+        if (activeDocId === doc.id) {
+          activeDocId = null;
+          $("scope-label").textContent = "All documents";
+        }
+        loadDocuments();
+      }
     };
     list.appendChild(el);
   });
 
-  // Poll every 3s while anything is still processing, so status flips to
-  // "ready" without the user needing to refresh.
   if (anyProcessing && !pollTimer) {
-    pollTimer = setInterval(async () => {
-      await loadDocuments();
-    }, 3000);
+    pollTimer = setInterval(loadDocuments, 3000);
   } else if (!anyProcessing && pollTimer) {
     clearInterval(pollTimer);
     pollTimer = null;
@@ -125,7 +203,7 @@ async function loadDocuments() {
 $("upload-btn").onclick = async () => {
   const file = $("file-input").files[0];
   if (!file) return;
-  $("upload-status").textContent = "Uploading...";
+  $("upload-status").textContent = "Uploading…";
 
   const form = new FormData();
   form.append("file", file);
@@ -142,25 +220,42 @@ $("upload-btn").onclick = async () => {
     return;
   }
   $("upload-status").textContent = "Uploaded — indexing in the background.";
+  $("file-input").value = "";
   await loadDocuments();
 };
 
+/* ===================== Chat ===================== */
+
 function addMessage(role, text, sources) {
   const log = $("chat-log");
+  const emptyState = log.querySelector(".chat-empty-state");
+  if (emptyState) emptyState.remove();
+
+  const row = document.createElement("div");
+  row.className = `msg-row is-${role}`;
   const bubble = document.createElement("div");
-  const isUser = role === "user";
-  bubble.className = isUser
-    ? "self-end bg-indigo-600 rounded-lg px-4 py-2 max-w-lg"
-    : "self-start bg-slate-800 rounded-lg px-4 py-2 max-w-lg";
+  bubble.className = "msg-bubble";
   bubble.textContent = text;
-  log.appendChild(bubble);
+  row.appendChild(bubble);
+  log.appendChild(row);
 
   if (sources && sources.length) {
-    const src = document.createElement("div");
-    src.className = "self-start text-xs text-slate-500 max-w-lg";
-    src.textContent = "Sources: " + sources.map((s) => `${s.filename} (${(s.score * 100).toFixed(0)}%)`).join(", ");
-    log.appendChild(src);
+    const wrap = document.createElement("div");
+    wrap.className = "source-list";
+    sources.forEach((s) => {
+      const pill = document.createElement("button");
+      pill.className = "source-pill";
+      const pct = Math.round(s.score * 100);
+      pill.innerHTML = `
+        <span class="source-pill-bar"><span class="source-pill-bar-fill" style="width:${pct}%"></span></span>
+        <span class="source-pill-name">${s.filename}</span>
+      `;
+      pill.onclick = () => openSourceModal(s);
+      wrap.appendChild(pill);
+    });
+    log.appendChild(wrap);
   }
+
   log.scrollTop = log.scrollHeight;
 }
 
@@ -183,13 +278,103 @@ $("ask-btn").onclick = async () => {
   }
 
   const data = await res.json();
+  const isNewSession = !sessionId;
   sessionId = data.session_id;
   addMessage("assistant", data.answer, data.sources);
+  if (isNewSession) loadSessions();
 };
 
-$("question-input").addEventListener("keydown", (e) => {
-  if (e.key === "Enter") $("ask-btn").click();
+$("new-chat-btn").onclick = () => {
+  sessionId = null;
+  $("chat-log").innerHTML = `
+    <div class="chat-empty-state">
+      <div class="chat-empty-icon">💬</div>
+      <h2>Ask something about your documents</h2>
+      <p>Upload a PDF or text file on the left, then ask a question. Answers are grounded only in what you've uploaded.</p>
+    </div>`;
+  highlightActiveSession(null);
+};
+
+/* ===================== Sessions ===================== */
+
+function highlightActiveSession(id) {
+  document.querySelectorAll(".session-item").forEach((el) => {
+    el.classList.toggle("is-active", el.dataset.sessionId === id);
+  });
+}
+
+async function loadSessions() {
+  const res = await fetch(`${API_BASE_URL}/chat/sessions`, { headers: authHeaders() });
+  if (!res.ok) return;
+  const sessions = await res.json();
+  const list = $("session-list");
+  list.innerHTML = "";
+
+  if (sessions.length === 0) {
+    list.innerHTML = `<p class="empty-hint">No conversations yet.</p>`;
+    return;
+  }
+
+  sessions.forEach((s) => {
+    const el = document.createElement("div");
+    el.className = "session-item";
+    el.dataset.sessionId = s.session_id;
+    el.innerHTML = `
+      <span class="session-title">${s.title}</span>
+      <span class="session-meta">${fmtTime(s.updated_at)} · ${s.message_count} msg${s.message_count === 1 ? "" : "s"}</span>
+      <button class="session-delete" title="Delete conversation">✕</button>
+    `;
+    el.onclick = () => openSession(s.session_id);
+    el.querySelector(".session-delete").onclick = async (e) => {
+      e.stopPropagation();
+      if (!confirm("Delete this conversation?")) return;
+      const delRes = await fetch(`${API_BASE_URL}/chat/sessions/${s.session_id}`, {
+        method: "DELETE",
+        headers: authHeaders(),
+      });
+      if (delRes.ok) {
+        if (sessionId === s.session_id) $("new-chat-btn").click();
+        loadSessions();
+      }
+    };
+    list.appendChild(el);
+  });
+
+  highlightActiveSession(sessionId);
+}
+
+async function openSession(id) {
+  const res = await fetch(`${API_BASE_URL}/chat/sessions/${id}`, { headers: authHeaders() });
+  if (!res.ok) return;
+  const messages = await res.json();
+
+  sessionId = id;
+  const log = $("chat-log");
+  log.innerHTML = "";
+  messages.forEach((m) => {
+    addMessage("user", m.question);
+    addMessage("assistant", m.answer); // historical sources aren't stored per-message, only the answer
+  });
+  highlightActiveSession(id);
+}
+
+/* ===================== Source excerpt modal ===================== */
+
+function openSourceModal(source) {
+  $("source-modal-filename").textContent = source.filename;
+  $("source-modal-meta").textContent = `Document ID: ${source.document_id}`;
+  const pct = Math.round(source.score * 100);
+  $("source-modal-relevance-fill").style.width = `${pct}%`;
+  $("source-modal-relevance-pct").textContent = `${pct}% match`;
+  $("source-modal-text").textContent = source.chunk_text;
+  $("source-modal").classList.remove("hidden");
+}
+
+$("source-modal-close").onclick = () => $("source-modal").classList.add("hidden");
+$("source-modal").addEventListener("click", (e) => {
+  if (e.target === $("source-modal")) $("source-modal").classList.add("hidden");
 });
 
-// Auto-login if token already stored
+/* ===================== Boot ===================== */
+
 if (token) showApp();

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
-from app.auth import hash_password, verify_password, create_access_token
+from app.auth import hash_password, verify_password, create_access_token, get_current_user
 from app.config import get_settings
 from app.db import get_db, User
 from app.models import UserCreate, UserLogin, Token, UserOut
@@ -34,3 +34,9 @@ def login(request: Request, payload: UserLogin, db: Session = Depends(get_db)):
 
     token = create_access_token({"sub": str(user.id)})
     return Token(access_token=token)
+
+
+@router.get("/me", response_model=UserOut)
+def me(user: User = Depends(get_current_user)):
+    """Current user's profile - powers the account menu in the UI."""
+    return user
