@@ -6,6 +6,20 @@ let pollTimer = null;
 
 const $ = (id) => document.getElementById(id);
 
+// FastAPI validation errors (422) return `detail` as an array of objects,
+// e.g. [{"loc":["body","password"],"msg":"String should have at least 8 characters",...}]
+// while most other errors return `detail` as a plain string. This normalizes
+// either shape into a readable message instead of "[object Object]".
+function extractErrorMessage(err, fallback) {
+  if (!err) return fallback;
+  const detail = err.detail;
+  if (Array.isArray(detail)) {
+    return detail.map((d) => d.msg || JSON.stringify(d)).join(", ");
+  }
+  if (typeof detail === "string") return detail;
+  return fallback;
+}
+
 function setMode(newMode) {
   mode = newMode;
   $("tab-login").className = mode === "login" ? "px-3 py-1 rounded bg-indigo-600" : "px-3 py-1 rounded bg-slate-800";
@@ -28,7 +42,10 @@ $("auth-submit").onclick = async () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
       });
-      if (!res.ok) throw new Error((await res.json()).detail || "Registration failed");
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        throw new Error(extractErrorMessage(err, "Registration failed"));
+      }
       setMode("login");
       $("auth-error").textContent = "Registered! Now log in.";
       $("auth-error").className = "text-green-400 text-sm mt-2";
@@ -40,7 +57,10 @@ $("auth-submit").onclick = async () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, password }),
     });
-    if (!res.ok) throw new Error((await res.json()).detail || "Login failed");
+    if (!res.ok) {
+      const err = await res.json().catch(() => null);
+      throw new Error(extractErrorMessage(err, "Login failed"));
+    }
     const data = await res.json();
     token = data.access_token;
     localStorage.setItem("rag_token", token);
@@ -117,7 +137,8 @@ $("upload-btn").onclick = async () => {
   });
 
   if (!res.ok) {
-    $("upload-status").textContent = "Upload failed: " + (await res.json()).detail;
+    const err = await res.json().catch(() => null);
+    $("upload-status").textContent = "Upload failed: " + extractErrorMessage(err, "Unknown error");
     return;
   }
   $("upload-status").textContent = "Uploaded — indexing in the background.";
@@ -156,7 +177,8 @@ $("ask-btn").onclick = async () => {
   });
 
   if (!res.ok) {
-    addMessage("system", "Error: " + (await res.json()).detail);
+    const err = await res.json().catch(() => null);
+    addMessage("system", "Error: " + extractErrorMessage(err, "Unknown error"));
     return;
   }
 
