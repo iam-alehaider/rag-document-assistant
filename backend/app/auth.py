@@ -1,3 +1,4 @@
+import secrets
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -21,6 +22,11 @@ def hash_password(password: str) -> str:
 
 def verify_password(plain: str, hashed: str) -> bool:
     return pwd_context.verify(plain, hashed)
+
+
+def generate_secure_token() -> str:
+    """URL-safe random token for email verification / password reset links."""
+    return secrets.token_urlsafe(32)
 
 
 def create_access_token(data: dict, expires_minutes: Optional[int] = None) -> str:

@@ -17,21 +17,53 @@
         <span class="brand-mark">D</span>
         <span class="brand-name">DocuMind</span>
       </div>
-      <p class="auth-subtitle">Sign in to query your documents.</p>
+      <p class="auth-subtitle" id="auth-subtitle">Sign in to query your documents.</p>
 
-      <div id="auth-tabs" class="auth-tabs">
-        <button id="tab-login" class="auth-tab is-active">Sign in</button>
-        <button id="tab-register" class="auth-tab">Create account</button>
+      <!-- ---- Login / Register view ---- -->
+      <div id="view-login-register">
+        <div id="auth-tabs" class="auth-tabs">
+          <button id="tab-login" class="auth-tab is-active">Sign in</button>
+          <button id="tab-register" class="auth-tab">Create account</button>
+        </div>
+
+        <label class="field-label" for="email">Email</label>
+        <input id="email" type="email" placeholder="you@company.com" class="field-input" autocomplete="username" />
+
+        <label class="field-label" for="password">Password</label>
+        <input id="password" type="password" placeholder="••••••••" class="field-input" autocomplete="current-password" />
+
+        <div class="field-row">
+          <a href="#" id="forgot-password-link" class="field-link hidden">Forgot password?</a>
+        </div>
+
+        <label id="tos-row" class="tos-row hidden">
+          <input type="checkbox" id="tos-checkbox" />
+          <span>I agree to the <a href="terms.html" target="_blank">Terms of Service</a> and <a href="privacy.html" target="_blank">Privacy Policy</a></span>
+        </label>
+
+        <button id="auth-submit" class="btn btn-primary btn-block">Sign in</button>
+        <button id="resend-verification-btn" class="btn btn-secondary btn-block hidden">Resend verification email</button>
+        <p id="auth-error" class="auth-message"></p>
       </div>
 
-      <label class="field-label" for="email">Email</label>
-      <input id="email" type="email" placeholder="you@company.com" class="field-input" autocomplete="username" />
+      <!-- ---- Forgot password view ---- -->
+      <div id="view-forgot" class="hidden">
+        <label class="field-label" for="forgot-email">Email</label>
+        <input id="forgot-email" type="email" placeholder="you@company.com" class="field-input" autocomplete="username" />
+        <button id="forgot-submit" class="btn btn-primary btn-block">Send reset link</button>
+        <a href="#" id="back-to-login-from-forgot" class="field-link back-link">← Back to sign in</a>
+        <p id="forgot-message" class="auth-message"></p>
+      </div>
 
-      <label class="field-label" for="password">Password</label>
-      <input id="password" type="password" placeholder="••••••••" class="field-input" autocomplete="current-password" />
-
-      <button id="auth-submit" class="btn btn-primary btn-block">Sign in</button>
-      <p id="auth-error" class="auth-message"></p>
+      <!-- ---- Reset password view ---- -->
+      <div id="view-reset" class="hidden">
+        <p class="auth-subtitle" style="margin-bottom:16px;">Choose a new password.</p>
+        <label class="field-label" for="reset-password">New password</label>
+        <input id="reset-password" type="password" placeholder="••••••••" class="field-input" autocomplete="new-password" />
+        <button id="reset-submit" class="btn btn-primary btn-block">Reset password</button>
+        <a href="#" id="back-to-login-from-reset" class="field-link back-link">← Back to sign in</a>
+        <p id="reset-message" class="auth-message"></p>
+      </div>
     </div>
   </section>
 

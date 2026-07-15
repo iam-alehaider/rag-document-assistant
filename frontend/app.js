@@ -1,10 +1,8 @@
-
-let mode = "login"; // or "register"
+let mode = "login"; // or "register" - only meaningful within the login/register view
 let token = localStorage.getItem("rag_token") || null;
 let sessionId = null;
 let activeDocId = null;
 let pollTimer = null;
-let lastSources = []; // sources for the most recently rendered assistant message, keyed for modal lookup
 
 const $ = (id) => document.getElementById(id);
 
@@ -34,17 +32,51 @@ function fmtTime(iso) {
     : d.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
-/* ===================== Auth ===================== */
+/* ===================== Auth view switching ===================== */
+
+function showAuthView(view) {
+  // view: "login" | "register" | "forgot" | "reset"
+  $("view-login-register").classList.toggle("hidden", view !== "login" && view !== "register");
+  $("view-forgot").classList.toggle("hidden", view !== "forgot");
+  $("view-reset").classList.toggle("hidden", view !== "reset");
+
+  if (view === "login" || view === "register") {
+    setMode(view);
+  }
+
+  const subtitles = {
+    login: "Sign in to query your documents.",
+    register: "Create an account to get started.",
+    forgot: "Reset your password.",
+    reset: "Choose a new password.",
+  };
+  $("auth-subtitle").textContent = subtitles[view];
+}
 
 function setMode(newMode) {
   mode = newMode;
   $("tab-login").classList.toggle("is-active", mode === "login");
   $("tab-register").classList.toggle("is-active", mode === "register");
   $("auth-submit").textContent = mode === "login" ? "Sign in" : "Create account";
+  $("forgot-password-link").classList.toggle("hidden", mode !== "login");
+  $("tos-row").classList.toggle("hidden", mode !== "register");
+  $("resend-verification-btn").classList.add("hidden");
+  $("auth-error").textContent = "";
+  $("auth-error").className = "auth-message";
 }
 
-$("tab-login").onclick = () => setMode("login");
-$("tab-register").onclick = () => setMode("register");
+$("tab-login").onclick = () => showAuthView("login");
+$("tab-register").onclick = () => showAuthView("register");
+$("forgot-password-link").onclick = (e) => {
+  e.preventDefault();
+  $("forgot-email").value = $("email").value;
+  $("forgot-message").textContent = "";
+  showAuthView("forgot");
+};
+$("back-to-login-from-forgot").onclick = (e) => { e.preventDefault(); showAuthView("login"); };
+$("back-to-login-from-reset").onclick = (e) => { e.preventDefault(); showAuthView("login"); };
+
+/* ===================== Login / Register ===================== */
 
 $("auth-submit").onclick = async () => {
   const email = $("email").value.trim();
@@ -52,20 +84,25 @@ $("auth-submit").onclick = async () => {
   const msg = $("auth-error");
   msg.textContent = "";
   msg.className = "auth-message";
+  $("resend-verification-btn").classList.add("hidden");
 
   try {
     if (mode === "register") {
+      if (!$("tos-checkbox").checked) {
+        throw new Error("You must accept the Terms of Service and Privacy Policy to create an account.");
+      }
       const res = await fetch(`${API_BASE_URL}/auth/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email, password, tos_accepted: true }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => null);
         throw new Error(extractErrorMessage(err, "Registration failed"));
       }
-      setMode("login");
-      msg.textContent = "Account created — sign in below.";
+      showAuthView("login");
+      $("email").value = email;
+      msg.textContent = "Account created — check your email for a verification link before signing in.";
       msg.className = "auth-message is-success";
       return;
     }
@@ -77,7 +114,11 @@ $("auth-submit").onclick = async () => {
     });
     if (!res.ok) {
       const err = await res.json().catch(() => null);
-      throw new Error(extractErrorMessage(err, "Login failed"));
+      const message = extractErrorMessage(err, "Login failed");
+      if (res.status === 403 && message.toLowerCase().includes("verify your email")) {
+        $("resend-verification-btn").classList.remove("hidden");
+      }
+      throw new Error(message);
     }
     const data = await res.json();
     token = data.access_token;
@@ -88,6 +129,99 @@ $("auth-submit").onclick = async () => {
     msg.className = "auth-message is-error";
   }
 };
+
+$("resend-verification-btn").onclick = async () => {
+  const email = $("email").value.trim();
+  const msg = $("auth-error");
+  const res = await fetch(`${API_BASE_URL}/auth/resend-verification`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+  });
+  const data = await res.json().catch(() => ({ message: "Request sent." }));
+  msg.textContent = data.message || "If that email exists, a new verification link was sent.";
+  msg.className = "auth-message is-success";
+  $("resend-verification-btn").classList.add("hidden");
+};
+
+/* ===================== Forgot / reset password ===================== */
+
+$("forgot-submit").onclick = async () => {
+  const email = $("forgot-email").value.trim();
+  const msg = $("forgot-message");
+  const res = await fetch(`${API_BASE_URL}/auth/forgot-password`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+  });
+  const data = await res.json().catch(() => ({ message: "Request sent." }));
+  msg.textContent = data.message || "If that email is registered, a reset link was sent.";
+  msg.className = "auth-message is-success";
+};
+
+let pendingResetToken = null;
+
+$("reset-submit").onclick = async () => {
+  const newPassword = $("reset-password").value;
+  const msg = $("reset-message");
+  msg.textContent = "";
+  msg.className = "auth-message";
+
+  if (!pendingResetToken) {
+    msg.textContent = "Missing reset token — use the link from your email again.";
+    msg.className = "auth-message is-error";
+    return;
+  }
+
+  const res = await fetch(`${API_BASE_URL}/auth/reset-password`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token: pendingResetToken, new_password: newPassword }),
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    msg.textContent = extractErrorMessage(data, "Reset failed — the link may have expired.");
+    msg.className = "auth-message is-error";
+    return;
+  }
+  msg.textContent = data.message || "Password updated — you can sign in now.";
+  msg.className = "auth-message is-success";
+  setTimeout(() => showAuthView("login"), 1500);
+};
+
+/* ===================== Handle email links (?verify=, ?reset=) ===================== */
+
+async function handleAuthLinkParams() {
+  const params = new URLSearchParams(window.location.search);
+  const verifyToken = params.get("verify");
+  const resetToken = params.get("reset");
+
+  if (verifyToken) {
+    const res = await fetch(`${API_BASE_URL}/auth/verify-email`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: verifyToken }),
+    });
+    const data = await res.json().catch(() => null);
+    showAuthView("login");
+    const msg = $("auth-error");
+    msg.textContent = res.ok
+      ? (data.message || "Email verified — you can sign in now.")
+      : extractErrorMessage(data, "Verification failed — the link may have expired.");
+    msg.className = res.ok ? "auth-message is-success" : "auth-message is-error";
+    window.history.replaceState({}, "", window.location.pathname);
+    return true;
+  }
+
+  if (resetToken) {
+    pendingResetToken = resetToken;
+    showAuthView("reset");
+    window.history.replaceState({}, "", window.location.pathname);
+    return true;
+  }
+
+  return false;
+}
 
 $("question-input").addEventListener("keydown", (e) => {
   if (e.key === "Enter") $("ask-btn").click();
@@ -101,6 +235,7 @@ function logout() {
   if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
   $("app-panel").classList.add("hidden");
   $("auth-panel").classList.remove("hidden");
+  showAuthView("login");
   $("email").value = "";
   $("password").value = "";
 }
@@ -377,4 +512,11 @@ $("source-modal").addEventListener("click", (e) => {
 
 /* ===================== Boot ===================== */
 
-if (token) showApp();
+(async function boot() {
+  const handledAuthLink = await handleAuthLinkParams();
+  if (!handledAuthLink && token) {
+    showApp();
+  } else if (!handledAuthLink) {
+    showAuthView("login");
+  }
+})();

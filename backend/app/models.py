@@ -1,13 +1,22 @@
-
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
 # ---------- Auth ----------
 class UserCreate(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8)
+    tos_accepted: bool = Field(
+        description="Must be true - the person must accept the Terms of Service and Privacy Policy to register."
+    )
+
+    @field_validator("tos_accepted")
+    @classmethod
+    def validate_tos_accepted(cls, v: bool) -> bool:
+        if not v:
+            raise ValueError("You must accept the Terms of Service and Privacy Policy to create an account.")
+        return v
 
 
 class UserLogin(BaseModel):
@@ -24,6 +33,28 @@ class UserOut(BaseModel):
     id: int
     email: EmailStr
     created_at: datetime
+    is_verified: bool
+
+
+class MessageResponse(BaseModel):
+    message: str
+
+
+class ResendVerificationRequest(BaseModel):
+    email: EmailStr
+
+
+class EmailVerifyRequest(BaseModel):
+    token: str
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str = Field(min_length=8)
 
 
 # ---------- Documents ----------

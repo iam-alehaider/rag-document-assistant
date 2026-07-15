@@ -1,3 +1,4 @@
+
 """
 Central configuration using pydantic-settings.
 
@@ -61,6 +62,17 @@ class Settings(BaseSettings):
     @property
     def ALLOWED_ORIGINS(self) -> list[str]:
         return [o.strip() for o in self.ALLOWED_ORIGINS_RAW.split(",")]
+
+    # --- Email (Resend free tier - transactional email for verification/reset) ---
+    RESEND_API_KEY: SecretStr = SecretStr("")
+    # Resend's shared sandbox sender works without a verified domain, but
+    # will only deliver to the email address on your Resend account until
+    # you verify your own domain. Swap this once you've verified a domain.
+    EMAIL_FROM: str = "DocuMind <onboarding@resend.dev>"
+    # Public URL of the deployed frontend - verification/reset links point here.
+    FRONTEND_URL: str = "http://localhost:5500"
+    VERIFICATION_TOKEN_EXPIRE_HOURS: int = 24
+    RESET_TOKEN_EXPIRE_MINUTES: int = 30
 
     @field_validator("ENV")
     @classmethod

@@ -1,0 +1,67 @@
+
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Privacy Policy — DocuMind</title>
+<link rel="stylesheet" href="style.css" />
+<style>
+  .legal-page { max-width: 720px; margin: 0 auto; padding: 48px 24px 80px; line-height: 1.7; }
+  .legal-page h1 { font-size: 24px; margin-bottom: 4px; }
+  .legal-page .updated { color: var(--text-tertiary); font-size: 13px; margin-bottom: 32px; }
+  .legal-page h2 { font-size: 16px; margin-top: 32px; }
+  .legal-page p, .legal-page li { color: var(--text-secondary); font-size: 14px; }
+  .legal-page a { color: var(--accent); }
+  .legal-note {
+    background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius-md);
+    padding: 14px 16px; font-size: 12.5px; color: var(--text-tertiary); margin-bottom: 32px;
+  }
+</style>
+</head>
+<body>
+  <div class="legal-page">
+    <h1>Privacy Policy</h1>
+    <p class="updated">Last updated: [DATE]</p>
+
+    <div class="legal-note">
+      Placeholder template — replace bracketed fields and have this reviewed by a lawyer
+      before relying on it for real users, especially across the EU/UK (GDPR) or California (CCPA).
+      This app currently stores data with Supabase (Postgres) and Qdrant Cloud — list their
+      sub-processor locations here once you know which regions you've provisioned.
+    </div>
+
+    <h2>1. What we collect</h2>
+    <ul>
+      <li>Account data: email address, hashed password.</li>
+      <li>Content you upload: documents and their extracted text/embeddings.</li>
+      <li>Usage data: questions you ask, generated answers, timestamps.</li>
+    </ul>
+
+    <h2>2. How we use it</h2>
+    <p>To provide the core service (authenticate you, answer questions from your documents), to maintain security (rate limiting, abuse prevention), and to operate the service (structured logs, metrics).</p>
+
+    <h2>3. Third parties that process your data</h2>
+    <ul>
+      <li><strong>Supabase</strong> — hosts our Postgres database (accounts, documents metadata, chat logs).</li>
+      <li><strong>Qdrant Cloud</strong> — hosts vector embeddings of your document content.</li>
+      <li><strong>Groq</strong> — processes your questions and document excerpts to generate answers.</li>
+      <li><strong>Resend</strong> — sends verification and password-reset emails.</li>
+      <li><strong>Render / Vercel</strong> — hosting infrastructure for the backend/frontend.</li>
+    </ul>
+
+    <h2>4. Your rights</h2>
+    <p>You can delete any document at any time, which removes it from both the database and vector store. You can request full account deletion by contacting us. If you are in the EU/UK, you have rights under GDPR including access, correction, deletion, and portability of your data.</p>
+
+    <h2>5. Data retention</h2>
+    <p>We retain your account and documents until you delete them or close your account. Chat logs are retained to let you revisit past conversations.</p>
+
+    <h2>6. Security</h2>
+    <p>Passwords are hashed with bcrypt and never stored in plain text. Data in transit is encrypted via HTTPS/TLS.</p>
+
+    <h2>7. Contact</h2>
+    <p>Questions or data requests: <a href="mailto:[YOUR CONTACT EMAIL]">[YOUR CONTACT EMAIL]</a></p>
+  </div>
+</body>
+</html>

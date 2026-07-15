@@ -1,10 +1,11 @@
+
 """
 Database layer. Uses SQLAlchemy against Postgres (works with local Docker
 Postgres or a free Supabase Postgres instance — just change DATABASE_URL).
 """
 from datetime import datetime
 
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, ForeignKey
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, Boolean, ForeignKey
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 
 from app.config import get_settings
@@ -23,6 +24,18 @@ class User(Base):
     email = Column(String, unique=True, index=True, nullable=False)
     hashed_password = Column(String, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+    # --- Email verification ---
+    is_verified = Column(Boolean, default=False, nullable=False)
+    verification_token = Column(String, nullable=True, index=True)
+    verification_token_expires_at = Column(DateTime, nullable=True)
+
+    # --- Password reset ---
+    reset_token = Column(String, nullable=True, index=True)
+    reset_token_expires_at = Column(DateTime, nullable=True)
+
+    # --- Legal acceptance ---
+    tos_accepted_at = Column(DateTime, nullable=True)
 
     documents = relationship("Document", back_populates="owner")
 
