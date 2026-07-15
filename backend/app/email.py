@@ -23,7 +23,7 @@ RESEND_API_URL = "https://api.resend.com/emails"
 
 
 def _send(to_email: str, subject: str, html: str) -> None:
-    api_key = settings.RESEND_API_KEY.get_secret_value()
+    api_key = settings.RESEND_API_KEY.get_secret_value().strip()
     if not api_key:
         # No provider configured - log instead of failing the request, so
         # registration/reset flows still work end-to-end in local dev.
