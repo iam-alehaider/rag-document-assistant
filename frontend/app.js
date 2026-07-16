@@ -361,6 +361,29 @@ $("upload-btn").onclick = async () => {
 
 /* ===================== Chat ===================== */
 
+let isStreaming = false;
+let currentStreamController = null;
+
+function renderSourcePills(sources) {
+  const log = $("chat-log");
+  if (!sources || !sources.length) return;
+  const wrap = document.createElement("div");
+  wrap.className = "source-list";
+  sources.forEach((s) => {
+    const pill = document.createElement("button");
+    pill.className = "source-pill";
+    const pct = Math.round(s.score * 100);
+    pill.innerHTML = `
+      <span class="source-pill-bar"><span class="source-pill-bar-fill" style="width:${pct}%"></span></span>
+      <span class="source-pill-name">${s.filename}</span>
+    `;
+    pill.onclick = () => openSourceModal(s);
+    wrap.appendChild(pill);
+  });
+  log.appendChild(wrap);
+  log.scrollTop = log.scrollHeight;
+}
+
 function addMessage(role, text, sources) {
   const log = $("chat-log");
   const emptyState = log.querySelector(".chat-empty-state");
@@ -374,52 +397,142 @@ function addMessage(role, text, sources) {
   row.appendChild(bubble);
   log.appendChild(row);
 
-  if (sources && sources.length) {
-    const wrap = document.createElement("div");
-    wrap.className = "source-list";
-    sources.forEach((s) => {
-      const pill = document.createElement("button");
-      pill.className = "source-pill";
-      const pct = Math.round(s.score * 100);
-      pill.innerHTML = `
-        <span class="source-pill-bar"><span class="source-pill-bar-fill" style="width:${pct}%"></span></span>
-        <span class="source-pill-name">${s.filename}</span>
-      `;
-      pill.onclick = () => openSourceModal(s);
-      wrap.appendChild(pill);
-    });
-    log.appendChild(wrap);
-  }
-
+  renderSourcePills(sources);
   log.scrollTop = log.scrollHeight;
 }
 
-$("ask-btn").onclick = async () => {
+// Creates an empty assistant bubble to be filled in token-by-token as the
+// stream arrives, plus a blinking cursor shown while still streaming.
+function createStreamingBubble() {
+  const log = $("chat-log");
+  const emptyState = log.querySelector(".chat-empty-state");
+  if (emptyState) emptyState.remove();
+
+  const row = document.createElement("div");
+  row.className = "msg-row is-assistant";
+  const bubble = document.createElement("div");
+  bubble.className = "msg-bubble";
+  const cursor = document.createElement("span");
+  cursor.className = "typing-cursor";
+  cursor.textContent = "▍";
+  bubble.appendChild(cursor);
+  row.appendChild(bubble);
+  log.appendChild(row);
+  log.scrollTop = log.scrollHeight;
+  return { bubble, cursor };
+}
+
+function setAskButtonState(streaming) {
+  const btn = $("ask-btn");
+  btn.textContent = streaming ? "Stop" : "Ask";
+  btn.classList.toggle("btn-secondary", streaming);
+  btn.classList.toggle("btn-primary", !streaming);
+}
+
+async function streamChatRequest(question) {
+  isStreaming = true;
+  setAskButtonState(true);
+
+  const { bubble, cursor } = createStreamingBubble();
+  let fullText = "";
+  let statusNoted = false;
+
+  currentStreamController = new AbortController();
+
+  try {
+    const res = await fetch(`${API_BASE_URL}/chat/stream`, {
+      method: "POST",
+      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ question, document_id: activeDocId, session_id: sessionId }),
+      signal: currentStreamController.signal,
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => null);
+      cursor.remove();
+      bubble.textContent = "Error: " + extractErrorMessage(err, "Unknown error");
+      return;
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let pendingSources = null;
+    const isNewSession = !sessionId;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop(); // last entry may be an incomplete line - keep for next chunk
+
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        let event;
+        try {
+          event = JSON.parse(line);
+        } catch {
+          continue;
+        }
+
+        if (event.type === "status" && !statusNoted) {
+          bubble.insertBefore(document.createTextNode(event.message + " "), cursor);
+          statusNoted = true;
+        } else if (event.type === "sources") {
+          pendingSources = event.sources;
+        } else if (event.type === "token") {
+          if (statusNoted) {
+            // Clear the transient "Searching documents..." note once real content starts.
+            bubble.textContent = "";
+            bubble.appendChild(cursor);
+            statusNoted = false;
+          }
+          fullText += event.text;
+          bubble.textContent = fullText;
+          bubble.appendChild(cursor);
+          $("chat-log").scrollTop = $("chat-log").scrollHeight;
+        } else if (event.type === "warning") {
+          bubble.insertBefore(document.createTextNode(event.message + " "), cursor);
+        } else if (event.type === "error") {
+          cursor.remove();
+          bubble.textContent = fullText || event.message;
+        } else if (event.type === "done") {
+          cursor.remove();
+          sessionId = event.session_id;
+          if (pendingSources) renderSourcePills(pendingSources);
+          if (isNewSession) loadSessions();
+        }
+      }
+    }
+  } catch (err) {
+    // AbortError happens when the person clicks Stop - keep whatever
+    // partial text has streamed in rather than treating it as a failure.
+    cursor.remove();
+    if (err.name !== "AbortError") {
+      bubble.textContent = fullText || "Something went wrong while streaming the answer.";
+    }
+  } finally {
+    isStreaming = false;
+    currentStreamController = null;
+    setAskButtonState(false);
+  }
+}
+
+$("ask-btn").onclick = () => {
+  if (isStreaming) {
+    currentStreamController?.abort();
+    return;
+  }
   const question = $("question-input").value.trim();
   if (!question) return;
   addMessage("user", question);
   $("question-input").value = "";
-
-  const res = await fetch(`${API_BASE_URL}/chat`, {
-    method: "POST",
-    headers: { ...authHeaders(), "Content-Type": "application/json" },
-    body: JSON.stringify({ question, document_id: activeDocId, session_id: sessionId }),
-  });
-
-  if (!res.ok) {
-    const err = await res.json().catch(() => null);
-    addMessage("system", "Error: " + extractErrorMessage(err, "Unknown error"));
-    return;
-  }
-
-  const data = await res.json();
-  const isNewSession = !sessionId;
-  sessionId = data.session_id;
-  addMessage("assistant", data.answer, data.sources);
-  if (isNewSession) loadSessions();
+  streamChatRequest(question);
 };
 
 $("new-chat-btn").onclick = () => {
+  if (isStreaming) currentStreamController?.abort();
   sessionId = null;
   $("chat-log").innerHTML = `
     <div class="chat-empty-state">

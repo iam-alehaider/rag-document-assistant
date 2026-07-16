@@ -1,5 +1,3 @@
-
-
 /* ============ Design tokens ============ */
 :root {
   --bg-base: #0a0e17;
@@ -524,6 +522,15 @@ button {
   color: var(--text-tertiary);
   font-size: 12.5px;
   border: 1px dashed var(--border);
+}
+
+.typing-cursor {
+  display: inline-block;
+  animation: cursor-blink 1s step-start infinite;
+  color: var(--accent);
+}
+@keyframes cursor-blink {
+  50% { opacity: 0; }
 }
 
 .source-list {

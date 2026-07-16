@@ -1,8 +1,10 @@
+
+
 """
 LLM call layer. Uses Groq's OpenAI-compatible API — free tier, very fast
-Llama 3.1 inference. Swap GROQ_MODEL / base_url if you later want to point
-this at another free-tier provider (e.g. Google Gemini, OpenRouter free
-models) without touching any other code.
+inference. Swap GROQ_MODEL / base_url if you later want to point this at
+another free-tier provider (e.g. Google Gemini, OpenRouter free models)
+without touching any other code.
 """
 from groq import Groq
 
@@ -42,3 +44,35 @@ def generate_answer(question: str, context_chunks: list[str], history: list[dict
         max_tokens=800,
     )
     return response.choices[0].message.content
+
+
+def generate_answer_stream(question: str, context_chunks: list[str], history: list[dict] | None = None):
+    """
+    Same prompt construction as generate_answer, but yields (delta_text,
+    finish_reason) tuples as Groq streams the response token by token,
+    instead of waiting for and returning the full completion at once.
+    """
+    context_block = build_context_block(context_chunks) if context_chunks else "No relevant context found."
+
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    if history:
+        messages.extend(history)
+
+    user_msg = f"Context:\n{context_block}\n\nQuestion: {question}"
+    messages.append({"role": "user", "content": user_msg})
+
+    stream = _client().chat.completions.create(
+        model=settings.GROQ_MODEL,
+        messages=messages,
+        temperature=0.2,
+        max_tokens=800,
+        stream=True,
+    )
+
+    for chunk in stream:
+        if not chunk.choices:
+            continue
+        choice = chunk.choices[0]
+        delta_text = choice.delta.content or ""
+        finish_reason = choice.finish_reason
+        yield delta_text, finish_reason
