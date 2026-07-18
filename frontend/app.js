@@ -1,8 +1,12 @@
+
+
 let mode = "login"; // or "register" - only meaningful within the login/register view
 let token = localStorage.getItem("rag_token") || null;
 let sessionId = null;
 let activeDocId = null;
 let pollTimer = null;
+let currentUserEmail = null;
+let cachedSessions = [];
 
 const $ = (id) => document.getElementById(id);
 
@@ -32,10 +36,20 @@ function fmtTime(iso) {
     : d.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
-/* ===================== Auth view switching ===================== */
+/* ===================== Landing / Auth view switching ===================== */
+
+function showLandingView() {
+  $("landing-panel").classList.remove("hidden");
+  $("auth-panel").classList.add("hidden");
+  $("app-panel").classList.add("hidden");
+}
 
 function showAuthView(view) {
   // view: "login" | "register" | "forgot" | "reset"
+  $("landing-panel").classList.add("hidden");
+  $("auth-panel").classList.remove("hidden");
+  $("app-panel").classList.add("hidden");
+
   $("view-login-register").classList.toggle("hidden", view !== "login" && view !== "register");
   $("view-forgot").classList.toggle("hidden", view !== "forgot");
   $("view-reset").classList.toggle("hidden", view !== "reset");
@@ -75,6 +89,17 @@ $("forgot-password-link").onclick = (e) => {
 };
 $("back-to-login-from-forgot").onclick = (e) => { e.preventDefault(); showAuthView("login"); };
 $("back-to-login-from-reset").onclick = (e) => { e.preventDefault(); showAuthView("login"); };
+$("auth-back-to-landing").onclick = () => showLandingView();
+
+/* ---- Landing page wiring ---- */
+$("landing-signin-btn").onclick = () => showAuthView("login");
+$("landing-getstarted-btn").onclick = () => showAuthView("register");
+$("landing-cta-btn").onclick = () => showAuthView("register");
+$("landing-footer-product").onclick = (e) => { e.preventDefault(); showLandingView(); window.scrollTo(0, 0); };
+$("landing-hero-submit").onclick = () => showAuthView("register");
+$("landing-hero-input").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") showAuthView("register");
+});
 
 /* ===================== Login / Register ===================== */
 
@@ -223,19 +248,13 @@ async function handleAuthLinkParams() {
   return false;
 }
 
-$("question-input").addEventListener("keydown", (e) => {
-  if (e.key === "Enter") $("ask-btn").click();
-});
-
 function logout() {
   localStorage.removeItem("rag_token");
   token = null;
   sessionId = null;
   activeDocId = null;
   if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
-  $("app-panel").classList.add("hidden");
-  $("auth-panel").classList.remove("hidden");
-  showAuthView("login");
+  showLandingView();
   $("email").value = "";
   $("password").value = "";
 }
@@ -243,9 +262,11 @@ function logout() {
 /* ===================== App shell ===================== */
 
 async function showApp() {
+  $("landing-panel").classList.add("hidden");
   $("auth-panel").classList.add("hidden");
   $("app-panel").classList.remove("hidden");
   await Promise.all([loadProfile(), loadDocuments(), loadSessions()]);
+  renderEmptyState();
 }
 
 async function loadProfile() {
@@ -255,13 +276,17 @@ async function loadProfile() {
     return;
   }
   const user = await res.json();
+  currentUserEmail = user.email;
   $("user-email-display").textContent = user.email;
   $("user-avatar-initial").textContent = user.email[0].toUpperCase();
 }
 
 $("user-menu-btn").onclick = (e) => {
   e.stopPropagation();
-  $("user-menu-dropdown").classList.toggle("hidden");
+  const dropdown = $("user-menu-dropdown");
+  const opening = dropdown.classList.contains("hidden");
+  dropdown.classList.toggle("hidden");
+  if (opening) fadeScaleIn(dropdown);
 };
 document.addEventListener("click", (e) => {
   if (!$("user-menu-dropdown").contains(e.target) && e.target !== $("user-menu-btn")) {
@@ -276,8 +301,12 @@ function statusClass(status) {
   return status === "ready" ? "is-ready" : status === "failed" ? "is-failed" : "is-processing";
 }
 
-function statusLabel(status) {
-  return status === "ready" ? "ready" : status === "failed" ? "failed" : "processing…";
+function statusBadgeHtml(status) {
+  if (status === "processing") {
+    return `<span class="doc-status-bar skeleton" title="processing…"></span>`;
+  }
+  const label = status === "ready" ? "ready" : "failed";
+  return `<span class="doc-status ${statusClass(status)}">${label}</span>`;
 }
 
 async function loadDocuments() {
@@ -293,13 +322,13 @@ async function loadDocuments() {
 
   let anyProcessing = false;
 
-  docs.forEach((doc) => {
+  docs.forEach((doc, i) => {
     if (doc.status === "processing") anyProcessing = true;
     const el = document.createElement("div");
     el.className = `doc-item ${statusClass(doc.status)}${doc.id === activeDocId ? " is-scoped" : ""}`;
     el.innerHTML = `
       <span class="doc-name" title="${doc.filename}">${doc.filename}</span>
-      <span class="doc-status ${statusClass(doc.status)}">${statusLabel(doc.status)}</span>
+      ${statusBadgeHtml(doc.status)}
       <button class="doc-delete" title="Delete document">✕</button>
     `;
     el.querySelector(".doc-name").onclick = () => {
@@ -308,7 +337,8 @@ async function loadDocuments() {
       $("scope-label").textContent = activeDocId ? doc.filename : "All documents";
       loadDocuments();
     };
-    el.querySelector(".doc-status").onclick = el.querySelector(".doc-name").onclick;
+    const statusEl = el.querySelector(".doc-status");
+    if (statusEl) statusEl.onclick = el.querySelector(".doc-name").onclick;
     el.querySelector(".doc-delete").onclick = async (e) => {
       e.stopPropagation();
       if (!confirm(`Delete "${doc.filename}"? This can't be undone.`)) return;
@@ -325,6 +355,7 @@ async function loadDocuments() {
       }
     };
     list.appendChild(el);
+    fadeSlideIn(el, { delay: i * 25 });
   });
 
   if (anyProcessing && !pollTimer) {
@@ -335,11 +366,8 @@ async function loadDocuments() {
   }
 }
 
-$("upload-btn").onclick = async () => {
-  const file = $("file-input").files[0];
-  if (!file) return;
+async function uploadFile(file) {
   $("upload-status").textContent = "Uploading…";
-
   const form = new FormData();
   form.append("file", file);
 
@@ -355,9 +383,64 @@ $("upload-btn").onclick = async () => {
     return;
   }
   $("upload-status").textContent = "Uploaded — indexing in the background.";
-  $("file-input").value = "";
   await loadDocuments();
+}
+
+$("upload-btn").onclick = async () => {
+  const file = $("file-input").files[0];
+  if (!file) return;
+  await uploadFile(file);
+  $("file-input").value = "";
 };
+
+$("composer-attach-btn").onclick = () => $("file-input").click();
+
+/* ===================== Empty state (5.1) ===================== */
+
+function buildEmptyStateHTML() {
+  const name = currentUserEmail ? currentUserEmail.split("@")[0] : "there";
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
+  const prompts = [
+    "Summarize this document",
+    "What are the key points?",
+    "List any dates or deadlines mentioned",
+    "Explain this in simple terms",
+  ];
+  const promptsHtml = prompts.map((p) => `<button class="suggested-prompt">${p}</button>`).join("");
+
+  let recentHtml = "";
+  if (cachedSessions.length > 0) {
+    const recent = cachedSessions.slice(0, 3);
+    const links = recent
+      .map((s) => `<button data-session-id="${s.session_id}">${s.title}</button>`)
+      .join("");
+    recentHtml = `<div class="recent-conversations-hint"><span>Or pick up a recent conversation</span>${links}</div>`;
+  }
+
+  return `
+    <div class="chat-empty-state">
+      <div class="chat-empty-icon">💬</div>
+      <h2>${greeting}, ${name}</h2>
+      <p>Upload a PDF or text file on the left, then ask a question. Answers are grounded only in what you've uploaded.</p>
+      <div class="suggested-prompts">${promptsHtml}</div>
+      ${recentHtml}
+    </div>`;
+}
+
+function renderEmptyState() {
+  $("chat-log").innerHTML = buildEmptyStateHTML();
+  $("chat-log").querySelectorAll(".suggested-prompt").forEach((btn) => {
+    btn.onclick = () => {
+      $("question-input").value = btn.textContent;
+      $("question-input").focus();
+      autoResizeComposer();
+    };
+  });
+  $("chat-log").querySelectorAll(".recent-conversations-hint button").forEach((btn) => {
+    btn.onclick = () => openSession(btn.dataset.sessionId);
+  });
+}
 
 /* ===================== Chat ===================== */
 
@@ -381,7 +464,21 @@ function renderSourcePills(sources) {
     wrap.appendChild(pill);
   });
   log.appendChild(wrap);
+  fadeSlideIn(wrap);
   log.scrollTop = log.scrollHeight;
+}
+
+function addCopyButton(row, bubble) {
+  const btn = document.createElement("button");
+  btn.className = "msg-copy-btn";
+  btn.textContent = "Copy";
+  btn.onclick = () => {
+    navigator.clipboard.writeText(bubble.textContent).then(() => {
+      btn.textContent = "Copied";
+      setTimeout(() => { btn.textContent = "Copy"; }, 1200);
+    });
+  };
+  row.appendChild(btn);
 }
 
 function addMessage(role, text, sources) {
@@ -395,7 +492,9 @@ function addMessage(role, text, sources) {
   bubble.className = "msg-bubble";
   bubble.textContent = text;
   row.appendChild(bubble);
+  if (role === "assistant") addCopyButton(row, bubble);
   log.appendChild(row);
+  fadeSlideIn(row);
 
   renderSourcePills(sources);
   log.scrollTop = log.scrollHeight;
@@ -418,8 +517,9 @@ function createStreamingBubble() {
   bubble.appendChild(cursor);
   row.appendChild(bubble);
   log.appendChild(row);
+  fadeSlideIn(row);
   log.scrollTop = log.scrollHeight;
-  return { bubble, cursor };
+  return { row, bubble, cursor };
 }
 
 function setAskButtonState(streaming) {
@@ -429,13 +529,36 @@ function setAskButtonState(streaming) {
   btn.classList.toggle("btn-primary", !streaming);
 }
 
+// Auto-scroll while streaming, but don't fight the person if they've
+// scrolled up to reread something - show a "jump to latest" button instead.
+function isScrolledNearBottom() {
+  const log = $("chat-log");
+  return log.scrollHeight - log.scrollTop - log.clientHeight < 80;
+}
+
+function maybeAutoScroll() {
+  const log = $("chat-log");
+  if (isScrolledNearBottom()) {
+    log.scrollTop = log.scrollHeight;
+    $("scroll-to-latest-btn").classList.add("hidden");
+  } else {
+    $("scroll-to-latest-btn").classList.remove("hidden");
+  }
+}
+
+$("scroll-to-latest-btn").onclick = () => {
+  const log = $("chat-log");
+  log.scrollTop = log.scrollHeight;
+  $("scroll-to-latest-btn").classList.add("hidden");
+};
+
 async function streamChatRequest(question) {
   isStreaming = true;
   setAskButtonState(true);
 
   const { bubble, cursor } = createStreamingBubble();
   let fullText = "";
-  let statusNoted = false;
+  let statusNode = null;
 
   currentStreamController = new AbortController();
 
@@ -476,32 +599,46 @@ async function streamChatRequest(question) {
           continue;
         }
 
-        if (event.type === "status" && !statusNoted) {
-          bubble.insertBefore(document.createTextNode(event.message + " "), cursor);
-          statusNoted = true;
+        if (event.type === "status") {
+          if (!statusNode) {
+            statusNode = document.createTextNode("");
+            bubble.insertBefore(statusNode, cursor);
+          }
+          statusNode.textContent = event.message + " ";
+        } else if (event.type === "retrieval") {
+          if (statusNode) {
+            const count = event.chunks_found;
+            statusNode.textContent = `Found ${count} relevant excerpt${count === 1 ? "" : "s"} — generating answer... `;
+          }
         } else if (event.type === "sources") {
           pendingSources = event.sources;
         } else if (event.type === "token") {
-          if (statusNoted) {
-            // Clear the transient "Searching documents..." note once real content starts.
-            bubble.textContent = "";
-            bubble.appendChild(cursor);
-            statusNoted = false;
+          if (statusNode) {
+            statusNode.remove();
+            statusNode = null;
           }
           fullText += event.text;
           bubble.textContent = fullText;
           bubble.appendChild(cursor);
-          $("chat-log").scrollTop = $("chat-log").scrollHeight;
+          maybeAutoScroll();
         } else if (event.type === "warning") {
-          bubble.insertBefore(document.createTextNode(event.message + " "), cursor);
+          if (statusNode) {
+            statusNode.textContent += event.message + " ";
+          } else {
+            statusNode = document.createTextNode(event.message + " ");
+            bubble.insertBefore(statusNode, cursor);
+          }
         } else if (event.type === "error") {
           cursor.remove();
           bubble.textContent = fullText || event.message;
         } else if (event.type === "done") {
           cursor.remove();
+          if (statusNode) statusNode.remove();
           sessionId = event.session_id;
           if (pendingSources) renderSourcePills(pendingSources);
+          addCopyButton(bubble.closest(".msg-row"), bubble);
           if (isNewSession) loadSessions();
+          maybeAutoScroll();
         }
       }
     }
@@ -509,6 +646,7 @@ async function streamChatRequest(question) {
     // AbortError happens when the person clicks Stop - keep whatever
     // partial text has streamed in rather than treating it as a failure.
     cursor.remove();
+    if (statusNode) statusNode.remove();
     if (err.name !== "AbortError") {
       bubble.textContent = fullText || "Something went wrong while streaming the answer.";
     }
@@ -519,7 +657,7 @@ async function streamChatRequest(question) {
   }
 }
 
-$("ask-btn").onclick = () => {
+function sendCurrentQuestion() {
   if (isStreaming) {
     currentStreamController?.abort();
     return;
@@ -528,19 +666,64 @@ $("ask-btn").onclick = () => {
   if (!question) return;
   addMessage("user", question);
   $("question-input").value = "";
+  autoResizeComposer();
   streamChatRequest(question);
-};
+}
+
+$("ask-btn").onclick = sendCurrentQuestion;
 
 $("new-chat-btn").onclick = () => {
   if (isStreaming) currentStreamController?.abort();
   sessionId = null;
-  $("chat-log").innerHTML = `
-    <div class="chat-empty-state">
-      <div class="chat-empty-icon">💬</div>
-      <h2>Ask something about your documents</h2>
-      <p>Upload a PDF or text file on the left, then ask a question. Answers are grounded only in what you've uploaded.</p>
-    </div>`;
+  renderEmptyState();
   highlightActiveSession(null);
+};
+
+/* ===================== Composer: auto-height + keyboard shortcuts (5.3) ===================== */
+
+function autoResizeComposer() {
+  const el = $("question-input");
+  el.style.height = "auto";
+  el.style.height = Math.min(el.scrollHeight, 160) + "px";
+}
+
+$("question-input").addEventListener("input", autoResizeComposer);
+
+$("question-input").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+    e.preventDefault();
+    sendCurrentQuestion();
+  } else if (e.key === "Enter" && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
+    // Plain Enter sends too (matches prior single-line input behavior);
+    // Shift+Enter inserts a newline, Cmd/Ctrl+Enter also sends explicitly.
+    e.preventDefault();
+    sendCurrentQuestion();
+  } else if (e.key === "Escape" && isStreaming) {
+    currentStreamController?.abort();
+  }
+});
+
+/* ===================== Message export (5.4) ===================== */
+
+$("export-chat-btn").onclick = () => {
+  const rows = $("chat-log").querySelectorAll(".msg-row");
+  if (!rows.length) return;
+  let md = `# Conversation export\n\n_Exported ${new Date().toLocaleString()}_\n\n`;
+  rows.forEach((row) => {
+    const bubble = row.querySelector(".msg-bubble");
+    if (!bubble) return;
+    const role = row.classList.contains("is-user") ? "You" : "Assistant";
+    md += `**${role}:**\n\n${bubble.textContent}\n\n---\n\n`;
+  });
+  const blob = new Blob([md], { type: "text/markdown" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `documind-conversation-${Date.now()}.md`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 };
 
 /* ===================== Sessions ===================== */
@@ -551,10 +734,7 @@ function highlightActiveSession(id) {
   });
 }
 
-async function loadSessions() {
-  const res = await fetch(`${API_BASE_URL}/chat/sessions`, { headers: authHeaders() });
-  if (!res.ok) return;
-  const sessions = await res.json();
+function renderSessionList(sessions) {
   const list = $("session-list");
   list.innerHTML = "";
 
@@ -563,7 +743,7 @@ async function loadSessions() {
     return;
   }
 
-  sessions.forEach((s) => {
+  sessions.forEach((s, i) => {
     const el = document.createElement("div");
     el.className = "session-item";
     el.dataset.sessionId = s.session_id;
@@ -586,10 +766,30 @@ async function loadSessions() {
       }
     };
     list.appendChild(el);
+    fadeSlideIn(el, { delay: i * 25 });
   });
 
   highlightActiveSession(sessionId);
 }
+
+async function loadSessions() {
+  // Skeleton placeholder while the fetch is in flight.
+  $("session-list").innerHTML = `
+    <div class="skeleton session-skeleton-row"></div>
+    <div class="skeleton session-skeleton-row"></div>
+    <div class="skeleton session-skeleton-row"></div>`;
+
+  const res = await fetch(`${API_BASE_URL}/chat/sessions`, { headers: authHeaders() });
+  if (!res.ok) return;
+  cachedSessions = await res.json();
+  renderSessionList(cachedSessions);
+}
+
+$("session-search").addEventListener("input", (e) => {
+  const q = e.target.value.trim().toLowerCase();
+  const filtered = q ? cachedSessions.filter((s) => s.title.toLowerCase().includes(q)) : cachedSessions;
+  renderSessionList(filtered);
+});
 
 async function openSession(id) {
   const res = await fetch(`${API_BASE_URL}/chat/sessions/${id}`, { headers: authHeaders() });
@@ -615,12 +815,37 @@ function openSourceModal(source) {
   $("source-modal-relevance-fill").style.width = `${pct}%`;
   $("source-modal-relevance-pct").textContent = `${pct}% match`;
   $("source-modal-text").textContent = source.chunk_text;
-  $("source-modal").classList.remove("hidden");
+  const modal = $("source-modal");
+  modal.classList.remove("hidden");
+  fadeScaleIn(modal.querySelector(".modal-card"));
 }
 
 $("source-modal-close").onclick = () => $("source-modal").classList.add("hidden");
 $("source-modal").addEventListener("click", (e) => {
   if (e.target === $("source-modal")) $("source-modal").classList.add("hidden");
+});
+
+/* ===================== Drag & drop uploads ===================== */
+
+const dropzone = $("app-panel");
+["dragover", "dragenter"].forEach((evt) => {
+  dropzone.addEventListener(evt, (e) => {
+    e.preventDefault();
+    dropzone.classList.add("is-dragging");
+  });
+});
+["dragleave", "drop"].forEach((evt) => {
+  dropzone.addEventListener(evt, (e) => {
+    e.preventDefault();
+    dropzone.classList.remove("is-dragging");
+  });
+});
+dropzone.addEventListener("drop", async (e) => {
+  const files = e.dataTransfer?.files;
+  if (!files || !files.length) return;
+  for (const file of files) {
+    await uploadFile(file);
+  }
 });
 
 /* ===================== Boot ===================== */
@@ -630,6 +855,6 @@ $("source-modal").addEventListener("click", (e) => {
   if (!handledAuthLink && token) {
     showApp();
   } else if (!handledAuthLink) {
-    showAuthView("login");
+    showLandingView();
   }
 })();

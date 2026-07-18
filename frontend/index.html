@@ -1,3 +1,5 @@
+
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -10,13 +12,95 @@
 </head>
 <body>
 
-  <!-- ===================== AUTH SCREEN ===================== -->
-  <section id="auth-panel" class="auth-screen">
-    <div class="auth-card">
+  <!-- ===================== LANDING ===================== -->
+  <section id="landing-panel" class="landing-screen">
+    <nav class="landing-nav">
       <div class="auth-brand">
         <span class="brand-mark">D</span>
         <span class="brand-name">DocuMind</span>
       </div>
+      <div class="landing-nav-actions">
+        <button id="landing-signin-btn" class="btn btn-ghost">Sign in</button>
+        <button id="landing-getstarted-btn" class="btn btn-primary">Get started</button>
+      </div>
+    </nav>
+
+    <div class="landing-hero">
+      <div class="landing-hero-bg" aria-hidden="true"></div>
+      <h1 class="landing-headline">Ask your documents anything.</h1>
+      <p class="landing-subheadline">Upload PDFs, DOCX, CSV, and more — get answers grounded only in what you've uploaded, with sources cited every time.</p>
+
+      <div class="landing-hero-composer">
+        <input id="landing-hero-input" type="text" placeholder="Ask anything about a document you're about to upload…" class="field-input" />
+        <button id="landing-hero-submit" class="btn btn-primary">Try it free</button>
+      </div>
+    </div>
+
+    <div class="landing-section">
+      <h2 class="landing-section-title">How it works</h2>
+      <div class="landing-cards">
+        <div class="landing-card">
+          <div class="landing-card-icon">📄</div>
+          <h3>Upload</h3>
+          <p>Drop in a PDF, Word doc, spreadsheet, or text file. It's indexed in the background in seconds.</p>
+        </div>
+        <div class="landing-card">
+          <div class="landing-card-icon">💬</div>
+          <h3>Ask</h3>
+          <p>Ask questions in plain language — DocuMind searches only your uploaded content for the answer.</p>
+        </div>
+        <div class="landing-card">
+          <div class="landing-card-icon">🔗</div>
+          <h3>Verify</h3>
+          <p>Every answer cites the exact excerpt it came from, with a relevance score — no guessing, no hallucination.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="landing-section">
+      <h2 class="landing-section-title">Built for real work</h2>
+      <div class="landing-cards">
+        <div class="landing-card">
+          <h3>Source citations</h3>
+          <p>Click any source to see the full excerpt and how relevant it was to your question.</p>
+        </div>
+        <div class="landing-card">
+          <h3>Conversation history</h3>
+          <p>Every chat is saved and searchable — pick up exactly where you left off.</p>
+        </div>
+        <div class="landing-card">
+          <h3>Multiple file formats</h3>
+          <p>PDF, DOCX, CSV, XLSX, and plain text — upload whatever you're working with.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="landing-cta">
+      <h2>Create your free account</h2>
+      <button id="landing-cta-btn" class="btn btn-primary landing-cta-btn">Get started — it's free</button>
+    </div>
+
+    <footer class="landing-footer">
+      <div class="auth-brand">
+        <span class="brand-mark">D</span>
+        <span class="brand-name">DocuMind</span>
+      </div>
+      <div class="landing-footer-links">
+        <a href="#" id="landing-footer-product">Product</a>
+        <a href="https://github.com" id="landing-footer-github" target="_blank" rel="noopener">GitHub</a>
+        <a href="privacy.html">Privacy</a>
+        <a href="terms.html">Terms</a>
+      </div>
+    </footer>
+  </section>
+
+  <!-- ===================== AUTH SCREEN ===================== -->
+  <section id="auth-panel" class="auth-screen hidden">
+    <div class="auth-card">
+      <button id="auth-back-to-landing" class="auth-brand auth-brand-link" title="Back to home">
+        <span class="brand-mark">D</span>
+        <span class="brand-name">DocuMind</span>
+      </button>
       <p class="auth-subtitle" id="auth-subtitle">Sign in to query your documents.</p>
 
       <!-- ---- Login / Register view ---- -->
@@ -83,6 +167,7 @@
 
       <div class="sidebar-section">
         <div class="sidebar-section-label">Conversations</div>
+        <input id="session-search" type="text" placeholder="Search conversations…" class="sidebar-search-input" />
         <div id="session-list" class="session-list">
           <p class="empty-hint">No conversations yet.</p>
         </div>
@@ -110,14 +195,18 @@
           <span id="scope-label">All documents</span>
         </div>
 
-        <div class="user-menu">
-          <button id="user-menu-btn" class="user-avatar-btn">
-            <span id="user-avatar-initial">U</span>
-          </button>
-          <div id="user-menu-dropdown" class="user-dropdown hidden">
-            <div class="user-dropdown-email" id="user-email-display">—</div>
-            <div class="user-dropdown-divider"></div>
-            <button id="logout-btn" class="user-dropdown-item">Log out</button>
+        <div class="topbar-right">
+          <button id="export-chat-btn" class="btn btn-secondary btn-sm" title="Export this conversation as Markdown">Export</button>
+
+          <div class="user-menu">
+            <button id="user-menu-btn" class="user-avatar-btn">
+              <span id="user-avatar-initial">U</span>
+            </button>
+            <div id="user-menu-dropdown" class="user-dropdown hidden">
+              <div class="user-dropdown-email" id="user-email-display">—</div>
+              <div class="user-dropdown-divider"></div>
+              <button id="logout-btn" class="user-dropdown-item">Log out</button>
+            </div>
           </div>
         </div>
       </header>
@@ -130,8 +219,13 @@
         </div>
       </div>
 
+      <div class="scroll-to-latest-wrap">
+        <button id="scroll-to-latest-btn" class="scroll-to-latest-btn hidden">↓ New content</button>
+      </div>
+
       <div class="composer">
-        <input id="question-input" type="text" placeholder="Ask a question about your documents…" class="composer-input" />
+        <button id="composer-attach-btn" class="btn-icon" title="Attach a document">📎</button>
+        <textarea id="question-input" rows="1" placeholder="Ask a question about your documents…" class="composer-input"></textarea>
         <button id="ask-btn" class="btn btn-primary composer-send">Ask</button>
       </div>
     </div>
@@ -159,6 +253,7 @@
 
   <script>window.RAG_API_BASE_URL = "https://rag-document-assistant-7p7o.onrender.com";</script>
   <script src="config.js"></script>
+  <script src="motion.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
