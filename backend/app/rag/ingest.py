@@ -1,7 +1,12 @@
+
+
+import csv
+import io
 import logging
-import uuid
 
 from pypdf import PdfReader
+import docx
+import openpyxl
 
 from app.rag.chunking import chunk_text
 from app.rag.embeddings import embed_texts
@@ -10,11 +15,58 @@ from app.rag.vectorstore import upsert_chunks, ensure_collection
 logger = logging.getLogger("rag.ingest")
 
 
+def _extract_pdf(file_bytes: bytes) -> str:
+    reader = PdfReader(io.BytesIO(file_bytes))
+    return "\n".join(page.extract_text() or "" for page in reader.pages)
+
+
+def _extract_docx(file_bytes: bytes) -> str:
+    document = docx.Document(io.BytesIO(file_bytes))
+    parts = [p.text for p in document.paragraphs if p.text]
+    # Tables aren't walked by `.paragraphs` - pull their cell text too, since
+    # a lot of real-world DOCX content (specs, comparisons) lives in tables.
+    for table in document.tables:
+        for row in table.rows:
+            row_text = " | ".join(cell.text for cell in row.cells if cell.text)
+            if row_text:
+                parts.append(row_text)
+    return "\n".join(parts)
+
+
+def _extract_csv(file_bytes: bytes) -> str:
+    # v1: join rows into plain text lines and feed the existing chunker,
+    # same as any other document. Row-aware/structured retrieval (treating
+    # each row as its own citable unit) is a reasonable future refinement,
+    # not required to make CSVs searchable today.
+    text = file_bytes.decode("utf-8", errors="ignore")
+    reader = csv.reader(io.StringIO(text))
+    lines = [", ".join(row) for row in reader if any(cell.strip() for cell in row)]
+    return "\n".join(lines)
+
+
+def _extract_xlsx(file_bytes: bytes) -> str:
+    workbook = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True, read_only=True)
+    parts = []
+    for sheet in workbook.worksheets:
+        parts.append(f"[Sheet: {sheet.title}]")
+        for row in sheet.iter_rows(values_only=True):
+            cells = [str(c) for c in row if c is not None]
+            if cells:
+                parts.append(", ".join(cells))
+    return "\n".join(parts)
+
+
 def extract_text(file_bytes: bytes, filename: str) -> str:
-    if filename.lower().endswith(".pdf"):
-        reader = PdfReader(__import__("io").BytesIO(file_bytes))
-        return "\n".join(page.extract_text() or "" for page in reader.pages)
-    # fallback: treat as plain text
+    ext = filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
+    if ext == "pdf":
+        return _extract_pdf(file_bytes)
+    if ext == "docx":
+        return _extract_docx(file_bytes)
+    if ext == "csv":
+        return _extract_csv(file_bytes)
+    if ext == "xlsx":
+        return _extract_xlsx(file_bytes)
+    # txt/md fallback
     return file_bytes.decode("utf-8", errors="ignore")
 
 

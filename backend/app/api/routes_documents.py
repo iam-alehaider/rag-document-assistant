@@ -1,3 +1,4 @@
+
 import uuid
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, UploadFile, File
@@ -14,7 +15,7 @@ from app.rate_limit import limiter
 settings = get_settings()
 router = APIRouter(prefix="/documents", tags=["documents"])
 
-ALLOWED_EXTENSIONS = {".pdf", ".txt", ".md"}
+ALLOWED_EXTENSIONS = {".pdf", ".txt", ".md", ".docx", ".csv", ".xlsx"}
 MAX_FILE_SIZE_MB = 20
 
 
