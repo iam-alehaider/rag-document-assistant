@@ -7,7 +7,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app.auth import get_current_user
@@ -20,6 +20,7 @@ from app.models import (
     ChatSessionOut,
     ChatMessageOut,
     SessionUpdateRequest,
+    ChatSessionSearchResult,
 )
 from app.rag.embeddings import embed_query
 from app.rag.vectorstore import search
@@ -244,6 +245,104 @@ async def chat_stream(
         media_type="application/x-ndjson",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+def _build_snippet(text: str, query: str, window: int = 60) -> str:
+    """Returns a short excerpt centered on the first match, with ellipses on
+    whichever side got truncated - simple substring search (ILIKE is doing
+    the same underneath), not real full-text ranking. Enough at this scale;
+    a real search index is a later refinement if this ever needs it."""
+    lower_text = text.lower()
+    idx = lower_text.find(query.lower())
+    if idx == -1:
+        return text[:120] + ("..." if len(text) > 120 else "")
+    start = max(0, idx - window // 2)
+    end = min(len(text), idx + len(query) + window // 2)
+    prefix = "..." if start > 0 else ""
+    suffix = "..." if end < len(text) else ""
+    return f"{prefix}{text[start:end]}{suffix}"
+
+
+@router.get("/search", response_model=list[ChatSessionSearchResult])
+def search_sessions(q: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """
+    Searches actual message content (question + answer text), not just
+    conversation titles - the sidebar's plain title filter is instant and
+    client-side; this is the real full-text search behind it. A plain
+    ILIKE is enough at this app's scale - no need for a dedicated search
+    index yet.
+    """
+    q = q.strip()
+    if not q:
+        return []
+
+    pattern = f"%{q}%"
+    matches = (
+        db.query(ChatLog)
+        .filter(
+            ChatLog.user_id == user.id,
+            or_(ChatLog.question.ilike(pattern), ChatLog.answer.ilike(pattern)),
+        )
+        .order_by(ChatLog.created_at.desc())
+        .all()
+    )
+    if not matches:
+        return []
+
+    # Keep only the most recent match per session, used for its snippet.
+    snippet_by_session = {}
+    for m in matches:
+        if m.session_id in snippet_by_session:
+            continue
+        source_text = m.question if q.lower() in m.question.lower() else m.answer
+        snippet_by_session[m.session_id] = _build_snippet(source_text, q)
+
+    session_ids = list(snippet_by_session.keys())
+
+    rows = (
+        db.query(
+            ChatLog.session_id,
+            func.min(ChatLog.created_at).label("created_at"),
+            func.max(ChatLog.created_at).label("updated_at"),
+            func.count(ChatLog.id).label("message_count"),
+        )
+        .filter(ChatLog.user_id == user.id, ChatLog.session_id.in_(session_ids))
+        .group_by(ChatLog.session_id)
+        .all()
+    )
+    session_meta = {
+        s.session_id: s
+        for s in db.query(ChatSession)
+        .filter(ChatSession.user_id == user.id, ChatSession.session_id.in_(session_ids))
+        .all()
+    }
+
+    results = []
+    for row in rows:
+        meta = session_meta.get(row.session_id)
+        title = meta.custom_title if meta and meta.custom_title else None
+        if not title:
+            first_message = (
+                db.query(ChatLog)
+                .filter(ChatLog.session_id == row.session_id, ChatLog.user_id == user.id)
+                .order_by(ChatLog.created_at.asc())
+                .first()
+            )
+            title = first_message.question[:60] if first_message else "Conversation"
+        results.append(
+            ChatSessionSearchResult(
+                session_id=row.session_id,
+                title=title,
+                message_count=row.message_count,
+                created_at=row.created_at,
+                updated_at=row.updated_at,
+                is_pinned=bool(meta.is_pinned) if meta else False,
+                snippet=snippet_by_session[row.session_id],
+            )
+        )
+
+    results.sort(key=lambda s: -s.updated_at.timestamp())
+    return results
 
 
 @router.get("/sessions", response_model=list[ChatSessionOut])

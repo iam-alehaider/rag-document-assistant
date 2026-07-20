@@ -1,4 +1,3 @@
-
 from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel, EmailStr, Field, field_validator
@@ -117,6 +116,10 @@ class ChatSessionOut(BaseModel):
     created_at: datetime   # timestamp of first message
     updated_at: datetime   # timestamp of most recent message
     is_pinned: bool
+
+
+class ChatSessionSearchResult(ChatSessionOut):
+    snippet: str   # excerpt of the matching question/answer text, for context
 
 
 class SessionUpdateRequest(BaseModel):

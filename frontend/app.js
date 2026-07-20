@@ -1,4 +1,5 @@
 
+
 let mode = "login"; // or "register" - only meaningful within the login/register view
 let token = localStorage.getItem("rag_token") || null;
 let sessionId = null;
@@ -452,7 +453,7 @@ async function loadDocuments() {
     const el = document.createElement("div");
     el.className = `doc-item ${statusClass(doc.status)}${doc.id === activeDocId ? " is-scoped" : ""}`;
     el.innerHTML = `
-      <span class="doc-name" title="${doc.filename}">${doc.filename}</span>
+      <span class="doc-name" title="${escapeHtml(doc.filename)}">${escapeHtml(doc.filename)}</span>
       ${statusBadgeHtml(doc.status)}
       <button class="doc-delete" title="Delete document">✕</button>
     `;
@@ -544,7 +545,7 @@ function buildEmptyStateHTML() {
   if (cachedSessions.length > 0) {
     const recent = cachedSessions.slice(0, 3);
     const links = recent
-      .map((s) => `<button data-session-id="${s.session_id}">${s.title}</button>`)
+      .map((s) => `<button data-session-id="${s.session_id}">${escapeHtml(s.title)}</button>`)
       .join("");
     recentHtml = `<div class="recent-conversations-hint"><span>Or pick up a recent conversation</span>${links}</div>`;
   }
@@ -589,7 +590,7 @@ function renderSourcePills(sources) {
     const pct = Math.round(s.score * 100);
     pill.innerHTML = `
       <span class="source-pill-bar"><span class="source-pill-bar-fill" style="width:${pct}%"></span></span>
-      <span class="source-pill-name">${s.filename}</span>
+      <span class="source-pill-name">${escapeHtml(s.filename)}</span>
     `;
     pill.onclick = () => openSourceModal(s);
     wrap.appendChild(pill);
@@ -1103,7 +1104,7 @@ async function toggleSessionPin(targetSessionId, currentlyPinned) {
   }
 }
 
-function renderSessionList(sessions) {
+function renderSessionList(sessions, { showSnippets = false } = {}) {
   const list = $("session-list");
   list.innerHTML = "";
 
@@ -1116,9 +1117,14 @@ function renderSessionList(sessions) {
     const el = document.createElement("div");
     el.className = "session-item";
     el.dataset.sessionId = s.session_id;
+    const snippetHtml =
+      showSnippets && s.snippet
+        ? `<span class="session-snippet">${escapeHtml(s.snippet)}</span>`
+        : "";
     el.innerHTML = `
-      <span class="session-title">${s.is_pinned ? "📌 " : ""}${s.title}</span>
+      <span class="session-title">${s.is_pinned ? "📌 " : ""}${escapeHtml(s.title)}</span>
       <span class="session-meta">${fmtTime(s.updated_at)} · ${s.message_count} msg${s.message_count === 1 ? "" : "s"}</span>
+      ${snippetHtml}
       <button class="session-delete" title="Delete conversation">✕</button>
     `;
     el.onclick = () => openSession(s.session_id);
@@ -1170,10 +1176,48 @@ async function loadSessions() {
   renderSessionList(cachedSessions);
 }
 
+function escapeHtml(str) {
+  const div = document.createElement("div");
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+let sessionSearchDebounce = null;
+
+async function performContentSearch(q) {
+  const res = await fetch(`${API_BASE_URL}/chat/search?q=${encodeURIComponent(q)}`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) return;
+  const results = await res.json();
+  renderSessionList(results, { showSnippets: true });
+}
+
 $("session-search").addEventListener("input", (e) => {
-  const q = e.target.value.trim().toLowerCase();
-  const filtered = q ? cachedSessions.filter((s) => s.title.toLowerCase().includes(q)) : cachedSessions;
-  renderSessionList(filtered);
+  const q = e.target.value.trim();
+  clearTimeout(sessionSearchDebounce);
+
+  if (!q) {
+    renderSessionList(cachedSessions);
+    return;
+  }
+
+  // Instant feedback from titles already loaded in memory, while the real
+  // full-text search (which needs a round trip) runs debounced behind it.
+  const qLower = q.toLowerCase();
+  const localMatches = cachedSessions.filter((s) => s.title.toLowerCase().includes(qLower));
+  renderSessionList(localMatches);
+
+  sessionSearchDebounce = setTimeout(() => performContentSearch(q), 300);
+});
+
+$("session-search").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    const q = e.target.value.trim();
+    if (!q) return;
+    clearTimeout(sessionSearchDebounce);
+    performContentSearch(q);
+  }
 });
 
 async function openSession(id) {
