@@ -640,20 +640,56 @@ function renderMarkdown(bubble, rawText) {
   injectCodeCopyButtons(bubble);
 }
 
-function addCopyButton(row, bubble) {
-  const btn = document.createElement("button");
-  btn.className = "msg-copy-btn";
-  btn.textContent = "Copy";
-  btn.onclick = () => {
+// Builds/rebuilds the action bar under an assistant message: Copy always,
+// Regenerate whenever we know the original question (works for both live
+// and historically-loaded messages), Continue only when the last stream
+// ended truncated (finish_reason === "length" is never persisted for
+// historical messages, so Continue is correctly unavailable after reload -
+// only Regenerate survives a page refresh, which matches what's actually
+// knowable).
+function addMessageActions(row, bubble, { question, finishReason } = {}) {
+  if (question) row.dataset.question = question;
+  if (finishReason) row.dataset.finishReason = finishReason;
+
+  const existing = row.querySelector(".msg-actions");
+  if (existing) existing.remove();
+
+  const actions = document.createElement("div");
+  actions.className = "msg-actions";
+
+  const copyBtn = document.createElement("button");
+  copyBtn.className = "msg-action-btn";
+  copyBtn.textContent = "Copy";
+  copyBtn.onclick = () => {
     navigator.clipboard.writeText(bubble.rawText || bubble.textContent).then(() => {
-      btn.textContent = "Copied";
-      setTimeout(() => { btn.textContent = "Copy"; }, 1200);
+      copyBtn.textContent = "Copied";
+      setTimeout(() => { copyBtn.textContent = "Copy"; }, 1200);
     });
   };
-  row.appendChild(btn);
+  actions.appendChild(copyBtn);
+
+  if (row.dataset.question) {
+    const regenBtn = document.createElement("button");
+    regenBtn.className = "msg-action-btn";
+    regenBtn.textContent = "↻ Regenerate";
+    regenBtn.title = "Ask the same question again as a new turn";
+    regenBtn.onclick = () => regenerateMessage(row);
+    actions.appendChild(regenBtn);
+  }
+
+  if (row.dataset.finishReason === "length") {
+    const contBtn = document.createElement("button");
+    contBtn.className = "msg-action-btn is-continue";
+    contBtn.textContent = "Continue";
+    contBtn.title = "The answer was cut off - continue generating";
+    contBtn.onclick = () => continueMessage(row, bubble);
+    actions.appendChild(contBtn);
+  }
+
+  row.appendChild(actions);
 }
 
-function addMessage(role, text, sources) {
+function addMessage(role, text, sources, question) {
   const log = $("chat-log");
   const emptyState = log.querySelector(".chat-empty-state");
   if (emptyState) emptyState.remove();
@@ -665,7 +701,7 @@ function addMessage(role, text, sources) {
   if (role === "assistant") {
     renderMarkdown(bubble, text);
     row.appendChild(bubble);
-    addCopyButton(row, bubble);
+    addMessageActions(row, bubble, { question });
   } else {
     bubble.textContent = text;
     row.appendChild(bubble);
@@ -729,14 +765,31 @@ $("scroll-to-latest-btn").onclick = () => {
   $("scroll-to-latest-btn").classList.add("hidden");
 };
 
-async function streamChatRequest(question) {
+async function streamChatRequest(question, { isContinuation = false, row: existingRow = null, bubble: existingBubble = null, seedText = "" } = {}) {
   isStreaming = true;
   setAskButtonState(true);
 
-  const { bubble, cursor } = createStreamingBubble();
-  let fullText = "";
-  let statusNode = null;
+  let row, bubble, cursor, fullText;
 
+  if (isContinuation && existingRow && existingBubble) {
+    // Continue generation: reuse the same bubble/row rather than creating a
+    // new message, and seed the running text with what's already there so
+    // new tokens are appended, not a fresh answer started from scratch.
+    row = existingRow;
+    bubble = existingBubble;
+    fullText = seedText;
+    cursor = document.createElement("span");
+    cursor.className = "typing-cursor";
+    cursor.textContent = "▍";
+    bubble.appendChild(cursor);
+    const oldActions = row.querySelector(".msg-actions");
+    if (oldActions) oldActions.remove(); // hide actions while it's streaming again
+  } else {
+    ({ row, bubble, cursor } = createStreamingBubble());
+    fullText = "";
+  }
+
+  let statusNode = null;
   currentStreamController = new AbortController();
 
   try {
@@ -813,7 +866,11 @@ async function streamChatRequest(question) {
           if (statusNode) statusNode.remove();
           sessionId = event.session_id;
           if (pendingSources) renderSourcePills(pendingSources);
-          addCopyButton(bubble.closest(".msg-row"), bubble);
+          // Preserve the ORIGINAL question on continuation, not the
+          // "continue where you left off" filler prompt - Regenerate should
+          // always re-ask the real question, not the continuation nudge.
+          const originalQuestion = isContinuation ? row.dataset.question : question;
+          addMessageActions(row, bubble, { question: originalQuestion, finishReason: event.finish_reason });
           if (isNewSession) loadSessions();
           maybeAutoScroll();
         }
@@ -832,6 +889,33 @@ async function streamChatRequest(question) {
     currentStreamController = null;
     setAskButtonState(false);
   }
+}
+
+// Regenerate: re-asks the same question as a brand-new turn appended at the
+// end of the conversation (not an in-place replacement) - simplest correct
+// behavior without deciding what should happen to messages that came after
+// the one being regenerated.
+function regenerateMessage(row) {
+  if (isStreaming) return;
+  const question = row.dataset.question;
+  if (!question) return;
+  streamChatRequest(question);
+}
+
+// Continue: only offered when the last stream was cut off by max_tokens.
+// Sends a short continuation nudge as the "question" (used for this turn's
+// retrieval), but the model's own truncated answer is what actually lets it
+// continue coherently, via the conversation memory already built into every
+// /chat/stream call.
+function continueMessage(row, bubble) {
+  if (isStreaming) return;
+  const continuationPrompt = "Continue exactly where you left off, with no repetition.";
+  streamChatRequest(continuationPrompt, {
+    isContinuation: true,
+    row,
+    bubble,
+    seedText: bubble.rawText || bubble.textContent || "",
+  });
 }
 
 function sendCurrentQuestion() {
@@ -1041,7 +1125,10 @@ async function openSession(id) {
   log.innerHTML = "";
   messages.forEach((m) => {
     addMessage("user", m.question);
-    addMessage("assistant", m.answer); // historical sources aren't stored per-message, only the answer
+    // historical sources and finish_reason aren't persisted per-message, only
+    // the answer text and the question - so Regenerate works after reload,
+    // Continue correctly doesn't (we can't know if it was truncated).
+    addMessage("assistant", m.answer, null, m.question);
   });
   highlightActiveSession(id);
 }

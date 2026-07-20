@@ -1,4 +1,5 @@
 
+
 /* ============ Design tokens ============ */
 /* Default (no data-theme attribute yet, e.g. before JS runs) = dark theme */
 :root {
@@ -809,19 +810,27 @@ button {
 .msg-row { display: flex; align-items: flex-end; gap: 8px; }
 .msg-row.is-user { justify-content: flex-end; }
 
-.msg-copy-btn {
+.msg-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   opacity: 0;
-  transition: opacity 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  transition: opacity 0.15s ease;
+  flex-shrink: 0;
+}
+.msg-row:hover .msg-actions { opacity: 1; }
+.msg-action-btn {
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: 6px;
   font-size: 11px;
   padding: 4px 9px;
   color: var(--text-tertiary);
-  flex-shrink: 0;
+  white-space: nowrap;
+  transition: color 0.15s ease, border-color 0.15s ease;
 }
-.msg-row:hover .msg-copy-btn { opacity: 1; }
-.msg-copy-btn:hover { color: var(--text-primary); border-color: var(--accent-border); }
+.msg-action-btn:hover { color: var(--text-primary); border-color: var(--accent-border); }
+.msg-action-btn.is-continue { color: var(--accent); border-color: var(--accent-border); }
 
 .suggested-prompts {
   display: flex;
