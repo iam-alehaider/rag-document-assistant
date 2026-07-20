@@ -1,5 +1,4 @@
 
-
 let mode = "login"; // or "register" - only meaningful within the login/register view
 let token = localStorage.getItem("rag_token") || null;
 let sessionId = null;
@@ -408,14 +407,170 @@ $("sidebar-collapse-btn").onclick = () => {
 };
 applySidebarCollapsed(localStorage.getItem(SIDEBAR_COLLAPSE_KEY) === "1");
 
+/* ===================== Mobile sidebar overlay =====================
+   Separate from the desktop collapse-to-icon behavior above - below the
+   phone-width breakpoint the sidebar becomes a full-height overlay drawer
+   instead (see the @media (max-width: 640px) block in style.css), since a
+   permanently-visible narrow column would squeeze the chat area unusably. */
+
+function openMobileSidebar() {
+  document.querySelector(".sidebar").classList.add("is-mobile-open");
+  $("sidebar-backdrop").classList.remove("hidden");
+}
+function closeMobileSidebar() {
+  document.querySelector(".sidebar").classList.remove("is-mobile-open");
+  $("sidebar-backdrop").classList.add("hidden");
+}
+$("mobile-menu-btn").onclick = () => {
+  if (document.querySelector(".sidebar").classList.contains("is-mobile-open")) {
+    closeMobileSidebar();
+  } else {
+    openMobileSidebar();
+  }
+};
+$("sidebar-backdrop").onclick = closeMobileSidebar;
+
+/* ===================== Command palette ===================== */
+
+let paletteItems = [];
+let paletteActiveIndex = -1;
+
+// Static actions - each maps to a button/handler that already exists
+// elsewhere, so the palette is just a faster way to reach them, not a
+// second implementation of anything.
+function getStaticCommands() {
+  return [
+    { label: "New conversation", hint: "Ctrl/Cmd+N", action: () => $("new-chat-btn").click() },
+    { label: "Open Settings", action: () => $("settings-btn").click() },
+    { label: "Export current conversation", action: () => $("export-chat-btn").click() },
+    { label: document.querySelector(".sidebar").classList.contains("is-collapsed") ? "Expand sidebar" : "Collapse sidebar", action: () => $("sidebar-collapse-btn").click() },
+    { label: "Switch to Dark theme", action: () => applyTheme("dark", { persist: true, syncServer: true }) },
+    { label: "Switch to Light theme", action: () => applyTheme("light", { persist: true, syncServer: true }) },
+    { label: "Switch to OLED theme", action: () => applyTheme("oled", { persist: true, syncServer: true }) },
+    { label: "Switch to System theme", action: () => applyTheme("system", { persist: true, syncServer: true }) },
+    { label: "Log out", action: () => logout() },
+  ];
+}
+
+function buildPaletteItem(labelText, hint, onSelect) {
+  const el = document.createElement("div");
+  el.className = "command-palette-item";
+  el.innerHTML = `
+    <span class="command-palette-item-label">${escapeHtml(labelText)}</span>
+    ${hint ? `<span class="command-palette-item-hint">${escapeHtml(hint)}</span>` : ""}
+  `;
+  el.onclick = onSelect;
+  el._onSelect = onSelect; // stashed for Enter-key activation
+  return el;
+}
+
+function setPaletteActiveIndex(idx) {
+  if (paletteItems.length === 0) return;
+  paletteActiveIndex = (idx + paletteItems.length) % paletteItems.length;
+  paletteItems.forEach((el, i) => el.classList.toggle("is-active", i === paletteActiveIndex));
+  paletteItems[paletteActiveIndex].scrollIntoView({ block: "nearest" });
+}
+
+function renderPaletteResults(query) {
+  const resultsEl = $("command-palette-results");
+  resultsEl.innerHTML = "";
+  paletteItems = [];
+  paletteActiveIndex = -1;
+
+  const q = query.trim().toLowerCase();
+  const matchedCommands = getStaticCommands().filter((c) => !q || c.label.toLowerCase().includes(q));
+  // Conversation matches use the already-loaded session list for instant
+  // results here - the sidebar's own search box is where the deeper
+  // full-text content search lives; the palette stays fast and client-side.
+  const matchedSessions = q
+    ? cachedSessions.filter((s) => s.title.toLowerCase().includes(q)).slice(0, 8)
+    : cachedSessions.slice(0, 5);
+
+  if (matchedCommands.length) {
+    const label = document.createElement("div");
+    label.className = "command-palette-group-label";
+    label.textContent = "Commands";
+    resultsEl.appendChild(label);
+    matchedCommands.forEach((c) => {
+      const el = buildPaletteItem(c.label, c.hint, () => {
+        c.action();
+        closeCommandPalette();
+      });
+      resultsEl.appendChild(el);
+      paletteItems.push(el);
+    });
+  }
+
+  if (matchedSessions.length) {
+    const label = document.createElement("div");
+    label.className = "command-palette-group-label";
+    label.textContent = q ? "Conversations" : "Recent conversations";
+    resultsEl.appendChild(label);
+    matchedSessions.forEach((s) => {
+      const el = buildPaletteItem(`${s.is_pinned ? "📌 " : ""}${s.title}`, null, () => {
+        openSession(s.session_id);
+        closeCommandPalette();
+      });
+      resultsEl.appendChild(el);
+      paletteItems.push(el);
+    });
+  }
+
+  if (paletteItems.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "empty-hint";
+    empty.textContent = "No matches.";
+    resultsEl.appendChild(empty);
+  } else {
+    setPaletteActiveIndex(0);
+  }
+}
+
+function openCommandPalette() {
+  const modal = $("command-palette");
+  modal.classList.remove("hidden");
+  fadeScaleIn(modal.querySelector(".command-palette-card"));
+  const input = $("command-palette-input");
+  input.value = "";
+  renderPaletteResults("");
+  input.focus();
+}
+
+function closeCommandPalette() {
+  $("command-palette").classList.add("hidden");
+}
+
+$("command-palette-input").addEventListener("input", (e) => renderPaletteResults(e.target.value));
+$("command-palette-input").addEventListener("keydown", (e) => {
+  if (e.key === "ArrowDown") {
+    e.preventDefault();
+    setPaletteActiveIndex(paletteActiveIndex + 1);
+  } else if (e.key === "ArrowUp") {
+    e.preventDefault();
+    setPaletteActiveIndex(paletteActiveIndex - 1);
+  } else if (e.key === "Enter") {
+    e.preventDefault();
+    if (paletteActiveIndex >= 0 && paletteItems[paletteActiveIndex]) {
+      paletteItems[paletteActiveIndex]._onSelect();
+    }
+  } else if (e.key === "Escape") {
+    e.preventDefault();
+    closeCommandPalette();
+  }
+});
+$("command-palette").addEventListener("click", (e) => {
+  if (e.target === $("command-palette")) closeCommandPalette();
+});
+
 /* ===================== Global keyboard shortcuts ===================== */
 
 document.addEventListener("keydown", (e) => {
   const mod = e.metaKey || e.ctrlKey;
-  if (mod && e.key.toLowerCase() === "k" && !$("app-panel").classList.contains("hidden")) {
+  const appVisible = !$("app-panel").classList.contains("hidden");
+  if (mod && e.key.toLowerCase() === "k" && appVisible) {
     e.preventDefault();
-    $("session-search").focus();
-  } else if (mod && e.key.toLowerCase() === "n" && !$("app-panel").classList.contains("hidden")) {
+    openCommandPalette();
+  } else if (mod && e.key.toLowerCase() === "n" && appVisible) {
     e.preventDefault();
     $("new-chat-btn").click();
   }
@@ -495,8 +650,8 @@ async function loadDocuments() {
   }
 }
 
-async function uploadFile(file) {
-  $("upload-status").textContent = "Uploading…";
+async function uploadFile(file, { silent = false } = {}) {
+  $("upload-status").textContent = `Uploading ${file.name}…`;
   const form = new FormData();
   form.append("file", file);
 
@@ -509,19 +664,56 @@ async function uploadFile(file) {
   if (!res.ok) {
     const err = await res.json().catch(() => null);
     const message = extractErrorMessage(err, "Unknown error");
-    $("upload-status").textContent = "Upload failed: " + message;
-    showToast("Upload failed: " + message, "error");
+    $("upload-status").textContent = `Upload failed (${file.name}): ` + message;
+    if (!silent) showToast("Upload failed: " + message, "error");
+    return false;
+  }
+  if (!silent) {
+    $("upload-status").textContent = "Uploaded — indexing in the background.";
+    showToast("Uploaded — indexing in the background.", "success");
+  }
+  return true;
+}
+
+// Shared entry point for both the upload button and drag-and-drop, so both
+// paths behave identically: a single file gets its own toast as before, but
+// multiple files upload sequentially (gentle on Render's single free-tier
+// worker, same reasoning as the original ingest pipeline) with one combined
+// progress line and one summary toast at the end, instead of N separate
+// toasts firing in a row.
+async function uploadFiles(fileList) {
+  const files = Array.from(fileList);
+  if (files.length === 0) return;
+
+  if (files.length === 1) {
+    await uploadFile(files[0]);
+    await loadDocuments();
     return;
   }
-  $("upload-status").textContent = "Uploaded — indexing in the background.";
-  showToast("Uploaded — indexing in the background.", "success");
+
+  let succeeded = 0;
+  let failed = 0;
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    $("upload-status").textContent = `Uploading ${i + 1} of ${files.length}: ${file.name}…`;
+    const ok = await uploadFile(file, { silent: true });
+    if (ok) succeeded++;
+    else failed++;
+  }
+
+  const summary =
+    failed === 0
+      ? `${succeeded} file${succeeded === 1 ? "" : "s"} uploaded — indexing in the background.`
+      : `${succeeded} uploaded, ${failed} failed.`;
+  $("upload-status").textContent = summary;
+  showToast(summary, failed === 0 ? "success" : "warning");
   await loadDocuments();
 }
 
 $("upload-btn").onclick = async () => {
-  const file = $("file-input").files[0];
-  if (!file) return;
-  await uploadFile(file);
+  const files = $("file-input").files;
+  if (!files.length) return;
+  await uploadFiles(files);
   $("file-input").value = "";
 };
 
@@ -938,6 +1130,7 @@ $("new-chat-btn").onclick = () => {
   sessionId = null;
   renderEmptyState();
   highlightActiveSession(null);
+  closeMobileSidebar(); // no-op above the mobile breakpoint
 };
 
 /* ===================== Composer: auto-height + keyboard shortcuts (5.3) ===================== */
@@ -1236,9 +1429,21 @@ async function openSession(id) {
     addMessage("assistant", m.answer, null, m.question);
   });
   highlightActiveSession(id);
+  closeMobileSidebar(); // no-op above the mobile breakpoint
 }
 
 /* ===================== Source excerpt modal ===================== */
+
+// Translates the raw cosine-similarity score into a human-readable label -
+// thresholds are a reasonable read on typical semantic-search relevance
+// scores, not a scientifically calibrated boundary.
+function confidenceLabel(score) {
+  const pct = score * 100;
+  if (pct >= 75) return { text: "Strong match", cls: "is-strong" };
+  if (pct >= 50) return { text: "Good match", cls: "is-good" };
+  if (pct >= 30) return { text: "Moderate match", cls: "is-moderate" };
+  return { text: "Weak match", cls: "is-weak" };
+}
 
 function openSourceModal(source) {
   $("source-modal-filename").textContent = source.filename;
@@ -1246,7 +1451,21 @@ function openSourceModal(source) {
   const pct = Math.round(source.score * 100);
   $("source-modal-relevance-fill").style.width = `${pct}%`;
   $("source-modal-relevance-pct").textContent = `${pct}% match`;
+
+  const confidence = confidenceLabel(source.score);
+  const badge = $("source-modal-confidence");
+  badge.textContent = confidence.text;
+  badge.className = `modal-confidence-badge ${confidence.cls}`;
+
   $("source-modal-text").textContent = source.chunk_text;
+
+  $("source-modal-copy").onclick = () => {
+    const citation = `"${source.chunk_text}"\n— ${source.filename} (${pct}% match, ${confidence.text.toLowerCase()})`;
+    navigator.clipboard.writeText(citation).then(() => {
+      showToast("Citation copied", "success");
+    });
+  };
+
   const modal = $("source-modal");
   modal.classList.remove("hidden");
   fadeScaleIn(modal.querySelector(".modal-card"));
@@ -1275,9 +1494,7 @@ const dropzone = $("app-panel");
 dropzone.addEventListener("drop", async (e) => {
   const files = e.dataTransfer?.files;
   if (!files || !files.length) return;
-  for (const file of files) {
-    await uploadFile(file);
-  }
+  await uploadFiles(files);
 });
 
 /* ===================== Button ripple micro-interaction ===================== */
