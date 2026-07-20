@@ -1,14 +1,31 @@
 
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>DocuMind</title>
+<script>
+  // Runs before first paint to avoid a flash of the wrong theme. "system"
+  // preference is resolved to a concrete dark/light value here; the actual
+  // stored preference (which may be "system") lives separately in localStorage.
+  (function () {
+    var stored = localStorage.getItem("rag_theme_preference") || "system";
+    var resolved = stored;
+    if (stored === "system") {
+      resolved = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    }
+    document.documentElement.setAttribute("data-theme", resolved);
+  })();
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css" />
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/markdown-it/13.0.2/markdown-it.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.6/purify.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
 </head>
 <body>
 
@@ -159,6 +176,7 @@
       <div class="sidebar-brand">
         <span class="brand-mark">D</span>
         <span class="brand-name">DocuMind</span>
+        <button id="sidebar-collapse-btn" class="sidebar-collapse-btn" title="Collapse sidebar">◀</button>
       </div>
 
       <button id="new-chat-btn" class="btn btn-primary btn-block sidebar-new-chat">
@@ -205,7 +223,8 @@
             <div id="user-menu-dropdown" class="user-dropdown hidden">
               <div class="user-dropdown-email" id="user-email-display">—</div>
               <div class="user-dropdown-divider"></div>
-              <button id="logout-btn" class="user-dropdown-item">Log out</button>
+              <button id="settings-btn" class="user-dropdown-item">Settings</button>
+              <button id="logout-btn" class="user-dropdown-item is-danger">Log out</button>
             </div>
           </div>
         </div>
@@ -248,6 +267,72 @@
         <span id="source-modal-relevance-pct" class="modal-relevance-pct">—</span>
       </div>
       <div class="modal-body" id="source-modal-text">—</div>
+    </div>
+  </div>
+
+  <!-- ===================== TOASTS ===================== -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <!-- ===================== SETTINGS MODAL ===================== -->
+  <div id="settings-modal" class="modal-backdrop hidden">
+    <div class="modal-card settings-card">
+      <div class="modal-header">
+        <div class="modal-filename">Settings</div>
+        <button id="settings-modal-close" class="modal-close">✕</button>
+      </div>
+      <div class="settings-body">
+        <div class="settings-tabs">
+          <button class="settings-tab is-active" data-settings-tab="appearance">Appearance</button>
+          <button class="settings-tab" data-settings-tab="account">Account</button>
+          <button class="settings-tab" data-settings-tab="shortcuts">Shortcuts</button>
+          <button class="settings-tab" data-settings-tab="about">About</button>
+        </div>
+
+        <div class="settings-panel" id="settings-panel-appearance">
+          <div class="settings-section-label">Theme</div>
+          <div class="theme-options">
+            <button class="theme-option" data-theme-choice="dark">
+              <div class="theme-option-swatch" style="background:#171A21;"></div>
+              Dark
+            </button>
+            <button class="theme-option" data-theme-choice="light">
+              <div class="theme-option-swatch" style="background:#FFFFFF;"></div>
+              Light
+            </button>
+            <button class="theme-option" data-theme-choice="oled">
+              <div class="theme-option-swatch" style="background:#000000;"></div>
+              OLED
+            </button>
+            <button class="theme-option" data-theme-choice="system">
+              <div class="theme-option-swatch" style="background:linear-gradient(90deg,#171A21 50%,#FFFFFF 50%);"></div>
+              System
+            </button>
+          </div>
+        </div>
+
+        <div class="settings-panel hidden" id="settings-panel-account">
+          <div class="settings-section-label">Account</div>
+          <div class="settings-row"><span>Email</span><span class="settings-row-value" id="settings-account-email">—</span></div>
+          <div class="settings-row"><span>Email verified</span><span class="settings-row-value" id="settings-account-verified">—</span></div>
+          <div class="settings-row"><span>Password</span><a href="#" id="settings-change-password" class="field-link">Change password</a></div>
+        </div>
+
+        <div class="settings-panel hidden" id="settings-panel-shortcuts">
+          <div class="settings-section-label">Keyboard shortcuts</div>
+          <div class="settings-row"><span>Send message</span><span class="shortcut-key">Enter</span></div>
+          <div class="settings-row"><span>New line</span><span class="shortcut-key">Shift + Enter</span></div>
+          <div class="settings-row"><span>Stop generating</span><span class="shortcut-key">Esc</span></div>
+          <div class="settings-row"><span>New conversation</span><span class="shortcut-key">Ctrl/Cmd + N</span></div>
+          <div class="settings-row"><span>Search conversations</span><span class="shortcut-key">Ctrl/Cmd + K</span></div>
+        </div>
+
+        <div class="settings-panel hidden" id="settings-panel-about">
+          <div class="settings-section-label">About</div>
+          <div class="settings-row"><span>Product</span><span class="settings-row-value">DocuMind</span></div>
+          <div class="settings-row"><span>Privacy Policy</span><a href="privacy.html" target="_blank" class="field-link">View</a></div>
+          <div class="settings-row"><span>Terms of Service</span><a href="terms.html" target="_blank" class="field-link">View</a></div>
+        </div>
+      </div>
     </div>
   </div>
 

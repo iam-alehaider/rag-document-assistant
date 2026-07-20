@@ -1,3 +1,4 @@
+
 from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel, EmailStr, Field, field_validator
@@ -34,6 +35,21 @@ class UserOut(BaseModel):
     email: EmailStr
     created_at: datetime
     is_verified: bool
+    theme_preference: str
+
+
+ALLOWED_THEMES = {"dark", "light", "system", "oled"}
+
+
+class PreferencesUpdate(BaseModel):
+    theme_preference: str
+
+    @field_validator("theme_preference")
+    @classmethod
+    def validate_theme(cls, v: str) -> str:
+        if v not in ALLOWED_THEMES:
+            raise ValueError(f"theme_preference must be one of {ALLOWED_THEMES}")
+        return v
 
 
 class MessageResponse(BaseModel):

@@ -1,4 +1,5 @@
 
+
 """
 Database layer. Uses SQLAlchemy against Postgres (works with local Docker
 Postgres or a free Supabase Postgres instance — just change DATABASE_URL).
@@ -36,6 +37,9 @@ class User(Base):
 
     # --- Legal acceptance ---
     tos_accepted_at = Column(DateTime, nullable=True)
+
+    # --- Preferences ---
+    theme_preference = Column(String, default="system", nullable=False)
 
     documents = relationship("Document", back_populates="owner")
 

@@ -1,3 +1,5 @@
+
+
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
@@ -23,6 +25,7 @@ from app.models import (
     EmailVerifyRequest,
     ForgotPasswordRequest,
     ResetPasswordRequest,
+    PreferencesUpdate,
 )
 from app.rate_limit import limiter
 
@@ -83,6 +86,21 @@ def login(request: Request, payload: UserLogin, db: Session = Depends(get_db)):
 @router.get("/me", response_model=UserOut)
 def me(user: User = Depends(get_current_user)):
     """Current user's profile - powers the account menu in the UI."""
+    return user
+
+
+@router.patch("/preferences", response_model=UserOut)
+def update_preferences(
+    payload: PreferencesUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Persists appearance/theme preference server-side so it follows the
+    person across devices, in addition to the instant localStorage copy
+    the frontend applies immediately on change."""
+    user.theme_preference = payload.theme_preference
+    db.commit()
+    db.refresh(user)
     return user
 
 

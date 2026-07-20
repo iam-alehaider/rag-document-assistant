@@ -36,6 +36,56 @@ function fmtTime(iso) {
     : d.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
+/* ===================== Theme system ===================== */
+
+function resolveTheme(pref) {
+  if (pref === "system") {
+    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  }
+  return pref;
+}
+
+// Applies instantly (CSS variable swap, already loaded) and updates the
+// settings UI's active state if the modal happens to be open.
+function applyTheme(pref, { persist = true, syncServer = false } = {}) {
+  document.documentElement.setAttribute("data-theme", resolveTheme(pref));
+  if (persist) localStorage.setItem("rag_theme_preference", pref);
+  document.querySelectorAll(".theme-option").forEach((btn) => {
+    btn.classList.toggle("is-active", btn.dataset.themeChoice === pref);
+  });
+  if (syncServer && token) {
+    fetch(`${API_BASE_URL}/auth/preferences`, {
+      method: "PATCH",
+      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ theme_preference: pref }),
+    }).catch(() => {}); // best-effort - localStorage already has it applied
+  }
+}
+
+function getCurrentThemePreference() {
+  return localStorage.getItem("rag_theme_preference") || "system";
+}
+
+// Keep "system" theme live if the OS preference changes while the tab is open.
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+  if (getCurrentThemePreference() === "system") applyTheme("system", { persist: false });
+});
+
+/* ===================== Toasts ===================== */
+
+function showToast(message, type = "default") {
+  const container = $("toast-container");
+  const el = document.createElement("div");
+  el.className = `toast${type !== "default" ? ` is-${type}` : ""}`;
+  el.textContent = message;
+  container.appendChild(el);
+  fadeSlideIn(el, { distance: 10 });
+  setTimeout(() => {
+    el.style.opacity = "0";
+    setTimeout(() => el.remove(), 200);
+  }, 3200);
+}
+
 /* ===================== Landing / Auth view switching ===================== */
 
 function showLandingView() {
@@ -269,6 +319,8 @@ async function showApp() {
   renderEmptyState();
 }
 
+let currentUserVerified = false;
+
 async function loadProfile() {
   const res = await fetch(`${API_BASE_URL}/auth/me`, { headers: authHeaders() });
   if (!res.ok) {
@@ -277,8 +329,16 @@ async function loadProfile() {
   }
   const user = await res.json();
   currentUserEmail = user.email;
+  currentUserVerified = user.is_verified;
   $("user-email-display").textContent = user.email;
   $("user-avatar-initial").textContent = user.email[0].toUpperCase();
+  $("settings-account-verified").textContent = user.is_verified ? "Yes" : "No";
+
+  // Server is the source of truth once logged in - apply its stored
+  // preference (falls back gracefully if the field is missing/invalid).
+  if (user.theme_preference) {
+    applyTheme(user.theme_preference, { persist: true, syncServer: false });
+  }
 }
 
 $("user-menu-btn").onclick = (e) => {
@@ -294,6 +354,72 @@ document.addEventListener("click", (e) => {
   }
 });
 $("logout-btn").onclick = logout;
+
+/* ===================== Settings modal ===================== */
+
+$("settings-btn").onclick = () => {
+  $("user-menu-dropdown").classList.add("hidden");
+  $("settings-account-email").textContent = currentUserEmail || "—";
+  const modal = $("settings-modal");
+  modal.classList.remove("hidden");
+  fadeScaleIn(modal.querySelector(".modal-card"));
+  applyTheme(getCurrentThemePreference(), { persist: false }); // refresh active swatch highlight
+};
+$("settings-modal-close").onclick = () => $("settings-modal").classList.add("hidden");
+$("settings-modal").addEventListener("click", (e) => {
+  if (e.target === $("settings-modal")) $("settings-modal").classList.add("hidden");
+});
+
+document.querySelectorAll(".settings-tab").forEach((tab) => {
+  tab.onclick = () => {
+    document.querySelectorAll(".settings-tab").forEach((t) => t.classList.remove("is-active"));
+    document.querySelectorAll(".settings-panel").forEach((p) => p.classList.add("hidden"));
+    tab.classList.add("is-active");
+    $(`settings-panel-${tab.dataset.settingsTab}`).classList.remove("hidden");
+  };
+});
+
+document.querySelectorAll(".theme-option").forEach((btn) => {
+  btn.onclick = () => applyTheme(btn.dataset.themeChoice, { persist: true, syncServer: true });
+});
+
+$("settings-change-password").onclick = async (e) => {
+  e.preventDefault();
+  if (!currentUserEmail) return;
+  await fetch(`${API_BASE_URL}/auth/forgot-password`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: currentUserEmail }),
+  });
+  showToast("Password reset link sent to your email.", "success");
+};
+
+/* ===================== Sidebar collapse ===================== */
+
+const SIDEBAR_COLLAPSE_KEY = "rag_sidebar_collapsed";
+function applySidebarCollapsed(collapsed) {
+  document.querySelector(".sidebar").classList.toggle("is-collapsed", collapsed);
+  $("sidebar-collapse-btn").textContent = collapsed ? "▶" : "◀";
+}
+$("sidebar-collapse-btn").onclick = () => {
+  const collapsed = !document.querySelector(".sidebar").classList.contains("is-collapsed");
+  localStorage.setItem(SIDEBAR_COLLAPSE_KEY, collapsed ? "1" : "0");
+  applySidebarCollapsed(collapsed);
+};
+applySidebarCollapsed(localStorage.getItem(SIDEBAR_COLLAPSE_KEY) === "1");
+
+/* ===================== Global keyboard shortcuts ===================== */
+
+document.addEventListener("keydown", (e) => {
+  const mod = e.metaKey || e.ctrlKey;
+  if (mod && e.key.toLowerCase() === "k" && !$("app-panel").classList.contains("hidden")) {
+    e.preventDefault();
+    $("session-search").focus();
+  } else if (mod && e.key.toLowerCase() === "n" && !$("app-panel").classList.contains("hidden")) {
+    e.preventDefault();
+    $("new-chat-btn").click();
+  }
+});
 
 /* ===================== Documents ===================== */
 
@@ -351,7 +477,10 @@ async function loadDocuments() {
           activeDocId = null;
           $("scope-label").textContent = "All documents";
         }
+        showToast(`Deleted "${doc.filename}"`, "success");
         loadDocuments();
+      } else {
+        showToast("Failed to delete document", "error");
       }
     };
     list.appendChild(el);
@@ -379,10 +508,13 @@ async function uploadFile(file) {
 
   if (!res.ok) {
     const err = await res.json().catch(() => null);
-    $("upload-status").textContent = "Upload failed: " + extractErrorMessage(err, "Unknown error");
+    const message = extractErrorMessage(err, "Unknown error");
+    $("upload-status").textContent = "Upload failed: " + message;
+    showToast("Upload failed: " + message, "error");
     return;
   }
   $("upload-status").textContent = "Uploaded — indexing in the background.";
+  showToast("Uploaded — indexing in the background.", "success");
   await loadDocuments();
 }
 
@@ -468,12 +600,52 @@ function renderSourcePills(sources) {
   log.scrollTop = log.scrollHeight;
 }
 
+/* ===================== Markdown rendering ===================== */
+
+// Defensive: if the markdown-it CDN script fails to load (network issue,
+// ad blocker, CDN outage), `md` stays null and renderMarkdown() below falls
+// back to plain text instead of throwing - a CDN hiccup should degrade
+// gracefully, not take down login/chat/everything else in this file.
+const md = window.markdownit ? window.markdownit({ html: false, linkify: true, breaks: true }) : null;
+
+function injectCodeCopyButtons(bubble) {
+  bubble.querySelectorAll("pre").forEach((pre) => {
+    if (pre.querySelector(".code-copy-btn")) return;
+    const btn = document.createElement("button");
+    btn.className = "code-copy-btn";
+    btn.textContent = "Copy";
+    btn.onclick = () => {
+      navigator.clipboard.writeText(pre.textContent).then(() => {
+        btn.textContent = "Copied";
+        setTimeout(() => { btn.textContent = "Copy"; }, 1200);
+      });
+    };
+    pre.appendChild(btn);
+  });
+}
+
+// Renders markdown -> sanitized HTML -> syntax highlighting, and stores the
+// original raw text on the element (bubble.rawText) so the Copy button can
+// copy the actual markdown source rather than the rendered plain text.
+// Falls back to plain text if the CDN libraries didn't load, rather than
+// throwing and breaking the message entirely.
+function renderMarkdown(bubble, rawText) {
+  bubble.rawText = rawText;
+  if (!md || !window.DOMPurify) {
+    bubble.textContent = rawText;
+    return;
+  }
+  bubble.innerHTML = DOMPurify.sanitize(md.render(rawText));
+  if (window.Prism && Prism.highlightAllUnder) Prism.highlightAllUnder(bubble);
+  injectCodeCopyButtons(bubble);
+}
+
 function addCopyButton(row, bubble) {
   const btn = document.createElement("button");
   btn.className = "msg-copy-btn";
   btn.textContent = "Copy";
   btn.onclick = () => {
-    navigator.clipboard.writeText(bubble.textContent).then(() => {
+    navigator.clipboard.writeText(bubble.rawText || bubble.textContent).then(() => {
       btn.textContent = "Copied";
       setTimeout(() => { btn.textContent = "Copy"; }, 1200);
     });
@@ -490,9 +662,14 @@ function addMessage(role, text, sources) {
   row.className = `msg-row is-${role}`;
   const bubble = document.createElement("div");
   bubble.className = "msg-bubble";
-  bubble.textContent = text;
-  row.appendChild(bubble);
-  if (role === "assistant") addCopyButton(row, bubble);
+  if (role === "assistant") {
+    renderMarkdown(bubble, text);
+    row.appendChild(bubble);
+    addCopyButton(row, bubble);
+  } else {
+    bubble.textContent = text;
+    row.appendChild(bubble);
+  }
   log.appendChild(row);
   fadeSlideIn(row);
 
@@ -618,7 +795,7 @@ async function streamChatRequest(question) {
             statusNode = null;
           }
           fullText += event.text;
-          bubble.textContent = fullText;
+          renderMarkdown(bubble, fullText);
           bubble.appendChild(cursor);
           maybeAutoScroll();
         } else if (event.type === "warning") {
@@ -705,6 +882,18 @@ $("question-input").addEventListener("keydown", (e) => {
 
 /* ===================== Message export (5.4) ===================== */
 
+function downloadMarkdown(md, filenamePrefix) {
+  const blob = new Blob([md], { type: "text/markdown" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${filenamePrefix}-${Date.now()}.md`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 $("export-chat-btn").onclick = () => {
   const rows = $("chat-log").querySelectorAll(".msg-row");
   if (!rows.length) return;
@@ -713,18 +902,26 @@ $("export-chat-btn").onclick = () => {
     const bubble = row.querySelector(".msg-bubble");
     if (!bubble) return;
     const role = row.classList.contains("is-user") ? "You" : "Assistant";
-    md += `**${role}:**\n\n${bubble.textContent}\n\n---\n\n`;
+    md += `**${role}:**\n\n${bubble.rawText || bubble.textContent}\n\n---\n\n`;
   });
-  const blob = new Blob([md], { type: "text/markdown" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `documind-conversation-${Date.now()}.md`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
+  downloadMarkdown(md, "documind-conversation");
 };
+
+// Exports a saved conversation without needing to open it first - used by
+// the sidebar's right-click context menu.
+async function exportSessionById(id) {
+  const res = await fetch(`${API_BASE_URL}/chat/sessions/${id}`, { headers: authHeaders() });
+  if (!res.ok) {
+    showToast("Couldn't load that conversation to export", "error");
+    return;
+  }
+  const messages = await res.json();
+  let md = `# Conversation export\n\n_Exported ${new Date().toLocaleString()}_\n\n`;
+  messages.forEach((m) => {
+    md += `**You:**\n\n${m.question}\n\n---\n\n**Assistant:**\n\n${m.answer}\n\n---\n\n`;
+  });
+  downloadMarkdown(md, "documind-conversation");
+}
 
 /* ===================== Sessions ===================== */
 
@@ -732,6 +929,35 @@ function highlightActiveSession(id) {
   document.querySelectorAll(".session-item").forEach((el) => {
     el.classList.toggle("is-active", el.dataset.sessionId === id);
   });
+}
+
+/* ===================== Generic context menu ===================== */
+
+function showContextMenu(x, y, items) {
+  document.querySelectorAll(".context-menu").forEach((m) => m.remove());
+  const menu = document.createElement("div");
+  menu.className = "context-menu";
+  items.forEach((item) => {
+    const btn = document.createElement("button");
+    btn.className = `context-menu-item${item.danger ? " is-danger" : ""}`;
+    btn.textContent = item.label;
+    btn.onclick = () => {
+      menu.remove();
+      item.onClick();
+    };
+    menu.appendChild(btn);
+  });
+  document.body.appendChild(menu);
+  const rect = menu.getBoundingClientRect();
+  menu.style.left = Math.min(x, window.innerWidth - rect.width - 8) + "px";
+  menu.style.top = Math.min(y, window.innerHeight - rect.height - 8) + "px";
+  fadeScaleIn(menu, { delay: 0 });
+  setTimeout(() => {
+    document.addEventListener("click", function closeMenu() {
+      menu.remove();
+      document.removeEventListener("click", closeMenu);
+    });
+  }, 0);
 }
 
 function renderSessionList(sessions) {
@@ -753,6 +979,17 @@ function renderSessionList(sessions) {
       <button class="session-delete" title="Delete conversation">✕</button>
     `;
     el.onclick = () => openSession(s.session_id);
+    el.oncontextmenu = (e) => {
+      e.preventDefault();
+      showContextMenu(e.clientX, e.clientY, [
+        { label: "Export as Markdown", onClick: () => exportSessionById(s.session_id) },
+        {
+          label: "Delete",
+          danger: true,
+          onClick: () => el.querySelector(".session-delete").click(),
+        },
+      ]);
+    };
     el.querySelector(".session-delete").onclick = async (e) => {
       e.stopPropagation();
       if (!confirm("Delete this conversation?")) return;
@@ -762,7 +999,10 @@ function renderSessionList(sessions) {
       });
       if (delRes.ok) {
         if (sessionId === s.session_id) $("new-chat-btn").click();
+        showToast("Conversation deleted", "success");
         loadSessions();
+      } else {
+        showToast("Failed to delete conversation", "error");
       }
     };
     list.appendChild(el);
@@ -847,6 +1087,28 @@ dropzone.addEventListener("drop", async (e) => {
     await uploadFile(file);
   }
 });
+
+/* ===================== Button ripple micro-interaction ===================== */
+
+document.addEventListener("click", (e) => {
+  const btn = e.target.closest(".btn");
+  if (!btn) return;
+  const rect = btn.getBoundingClientRect();
+  const ripple = document.createElement("span");
+  const size = Math.max(rect.width, rect.height);
+  ripple.className = "btn-ripple";
+  ripple.style.width = ripple.style.height = size + "px";
+  ripple.style.left = e.clientX - rect.left - size / 2 + "px";
+  ripple.style.top = e.clientY - rect.top - size / 2 + "px";
+  btn.appendChild(ripple);
+  setTimeout(() => ripple.remove(), 500);
+});
+
+// Point Prism's autoloader at the same CDN version used for the core script,
+// so it can fetch language grammars on demand as code blocks appear.
+if (window.Prism && Prism.plugins && Prism.plugins.autoloader) {
+  Prism.plugins.autoloader.languages_path = "https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/";
+}
 
 /* ===================== Boot ===================== */
 
