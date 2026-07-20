@@ -598,6 +598,17 @@ button {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.session-rename-input {
+  width: 100%;
+  background: var(--bg-elevated);
+  border: 1px solid var(--accent-border);
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  font-family: inherit;
+}
 .session-meta {
   font-size: 11px;
   color: var(--text-tertiary);

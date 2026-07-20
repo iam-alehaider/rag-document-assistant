@@ -112,7 +112,25 @@ class ChatMessageOut(BaseModel):
 
 class ChatSessionOut(BaseModel):
     session_id: str
-    title: str          # first question in the session, used as a label
+    title: str          # custom title if renamed, else the first question in the session
     message_count: int
     created_at: datetime   # timestamp of first message
     updated_at: datetime   # timestamp of most recent message
+    is_pinned: bool
+
+
+class SessionUpdateRequest(BaseModel):
+    title: Optional[str] = None
+    is_pinned: Optional[bool] = None
+
+    @field_validator("title")
+    @classmethod
+    def validate_title(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        v = v.strip()
+        if not v:
+            raise ValueError("Title cannot be empty.")
+        if len(v) > 100:
+            raise ValueError("Title must be 100 characters or fewer.")
+        return v

@@ -12,13 +12,14 @@ from sqlalchemy.orm import Session
 
 from app.auth import get_current_user
 from app.config import get_settings
-from app.db import get_db, SessionLocal, User, ChatLog
+from app.db import get_db, SessionLocal, User, ChatLog, ChatSession
 from app.models import (
     ChatRequest,
     ChatResponse,
     SourceChunk,
     ChatSessionOut,
     ChatMessageOut,
+    SessionUpdateRequest,
 )
 from app.rag.embeddings import embed_query
 from app.rag.vectorstore import search
@@ -248,8 +249,9 @@ async def chat_stream(
 @router.get("/sessions", response_model=list[ChatSessionOut])
 def list_sessions(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """
-    One row per distinct session_id, with the first question used as a
-    display title and first/last timestamps for sorting + display.
+    One row per distinct session_id. Title is the custom rename if one was
+    set, otherwise the first question, truncated. Pinned conversations sort
+    above unpinned ones; within each group, most recently updated first.
     """
     rows = (
         db.query(
@@ -260,19 +262,28 @@ def list_sessions(db: Session = Depends(get_db), user: User = Depends(get_curren
         )
         .filter(ChatLog.user_id == user.id)
         .group_by(ChatLog.session_id)
-        .order_by(func.max(ChatLog.created_at).desc())
         .all()
     )
 
+    # One query for all this user's session metadata, rather than one query
+    # per session inside the loop below.
+    session_meta = {
+        s.session_id: s
+        for s in db.query(ChatSession).filter(ChatSession.user_id == user.id).all()
+    }
+
     sessions = []
     for row in rows:
-        first_message = (
-            db.query(ChatLog)
-            .filter(ChatLog.session_id == row.session_id, ChatLog.user_id == user.id)
-            .order_by(ChatLog.created_at.asc())
-            .first()
-        )
-        title = first_message.question[:60] if first_message else "Conversation"
+        meta = session_meta.get(row.session_id)
+        title = meta.custom_title if meta and meta.custom_title else None
+        if not title:
+            first_message = (
+                db.query(ChatLog)
+                .filter(ChatLog.session_id == row.session_id, ChatLog.user_id == user.id)
+                .order_by(ChatLog.created_at.asc())
+                .first()
+            )
+            title = first_message.question[:60] if first_message else "Conversation"
         sessions.append(
             ChatSessionOut(
                 session_id=row.session_id,
@@ -280,9 +291,73 @@ def list_sessions(db: Session = Depends(get_db), user: User = Depends(get_curren
                 message_count=row.message_count,
                 created_at=row.created_at,
                 updated_at=row.updated_at,
+                is_pinned=bool(meta.is_pinned) if meta else False,
             )
         )
+
+    sessions.sort(key=lambda s: (not s.is_pinned, -s.updated_at.timestamp()))
     return sessions
+
+
+@router.patch("/sessions/{session_id}", response_model=ChatSessionOut)
+def update_session(
+    session_id: str,
+    payload: SessionUpdateRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """
+    Renames and/or pins a conversation. The chat_sessions row is created
+    lazily here on first use rather than eagerly when a conversation starts -
+    most conversations are never renamed or pinned, so there's no reason to
+    write a row for every single one up front.
+    """
+    owns_session = (
+        db.query(ChatLog.id)
+        .filter(ChatLog.session_id == session_id, ChatLog.user_id == user.id)
+        .first()
+    )
+    if not owns_session:
+        raise HTTPException(404, "Session not found")
+
+    meta = db.query(ChatSession).filter(ChatSession.session_id == session_id).first()
+    if not meta:
+        meta = ChatSession(session_id=session_id, user_id=user.id)
+        db.add(meta)
+
+    if payload.title is not None:
+        meta.custom_title = payload.title
+    if payload.is_pinned is not None:
+        meta.is_pinned = payload.is_pinned
+    db.commit()
+
+    agg = (
+        db.query(
+            func.min(ChatLog.created_at).label("created_at"),
+            func.max(ChatLog.created_at).label("updated_at"),
+            func.count(ChatLog.id).label("message_count"),
+        )
+        .filter(ChatLog.session_id == session_id, ChatLog.user_id == user.id)
+        .first()
+    )
+    title = meta.custom_title
+    if not title:
+        first_message = (
+            db.query(ChatLog)
+            .filter(ChatLog.session_id == session_id, ChatLog.user_id == user.id)
+            .order_by(ChatLog.created_at.asc())
+            .first()
+        )
+        title = first_message.question[:60] if first_message else "Conversation"
+
+    return ChatSessionOut(
+        session_id=session_id,
+        title=title,
+        message_count=agg.message_count,
+        created_at=agg.created_at,
+        updated_at=agg.updated_at,
+        is_pinned=meta.is_pinned,
+    )
 
 
 @router.get("/sessions/{session_id}", response_model=list[ChatMessageOut])

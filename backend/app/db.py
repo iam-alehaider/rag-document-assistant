@@ -1,5 +1,3 @@
-
-
 """
 Database layer. Uses SQLAlchemy against Postgres (works with local Docker
 Postgres or a free Supabase Postgres instance — just change DATABASE_URL).
@@ -67,6 +65,24 @@ class ChatLog(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     question = Column(String, nullable=False)
     answer = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class ChatSession(Base):
+    """
+    Per-conversation metadata: custom title and pin state. Sessions
+    themselves aren't otherwise a first-class table - they're derived by
+    grouping ChatLog rows by session_id - so this exists purely to hold the
+    two things that need to persist independently of any individual message:
+    a rename and a pin. Rows are created lazily on first rename/pin (see
+    PATCH /chat/sessions/{id}), not eagerly when a session starts.
+    """
+    __tablename__ = "chat_sessions"
+
+    session_id = Column(String, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    custom_title = Column(String, nullable=True)
+    is_pinned = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 

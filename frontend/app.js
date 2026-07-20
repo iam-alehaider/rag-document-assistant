@@ -1,5 +1,4 @@
 
-
 let mode = "login"; // or "register" - only meaningful within the login/register view
 let token = localStorage.getItem("rag_token") || null;
 let sessionId = null;
@@ -1044,6 +1043,66 @@ function showContextMenu(x, y, items) {
   }, 0);
 }
 
+// Turns a session's title into an inline `<input>` for renaming - no modal,
+// per the acceptance criteria. Enter/blur saves, Escape cancels.
+function startRenameSession(el, s) {
+  const titleEl = el.querySelector(".session-title");
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "session-rename-input";
+  input.value = s.title;
+  input.onclick = (e) => e.stopPropagation(); // don't open the session while editing
+  titleEl.replaceWith(input);
+  input.focus();
+  input.select();
+
+  const finish = async (shouldSave) => {
+    if (shouldSave) {
+      const newTitle = input.value.trim();
+      if (newTitle && newTitle !== s.title) {
+        const res = await fetch(`${API_BASE_URL}/chat/sessions/${s.session_id}`, {
+          method: "PATCH",
+          headers: { ...authHeaders(), "Content-Type": "application/json" },
+          body: JSON.stringify({ title: newTitle }),
+        });
+        if (res.ok) {
+          showToast("Conversation renamed", "success");
+        } else {
+          const err = await res.json().catch(() => null);
+          showToast("Rename failed: " + extractErrorMessage(err, "Unknown error"), "error");
+        }
+      }
+    }
+    loadSessions(); // restores the normal view whether saved, cancelled, or failed
+  };
+
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      input.blur();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      input.dataset.cancelled = "1";
+      input.blur();
+    }
+  });
+  input.addEventListener("blur", () => finish(input.dataset.cancelled !== "1"));
+}
+
+async function toggleSessionPin(targetSessionId, currentlyPinned) {
+  const res = await fetch(`${API_BASE_URL}/chat/sessions/${targetSessionId}`, {
+    method: "PATCH",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({ is_pinned: !currentlyPinned }),
+  });
+  if (res.ok) {
+    showToast(currentlyPinned ? "Unpinned" : "Pinned", "success");
+    loadSessions();
+  } else {
+    showToast("Failed to update pin state", "error");
+  }
+}
+
 function renderSessionList(sessions) {
   const list = $("session-list");
   list.innerHTML = "";
@@ -1058,7 +1117,7 @@ function renderSessionList(sessions) {
     el.className = "session-item";
     el.dataset.sessionId = s.session_id;
     el.innerHTML = `
-      <span class="session-title">${s.title}</span>
+      <span class="session-title">${s.is_pinned ? "📌 " : ""}${s.title}</span>
       <span class="session-meta">${fmtTime(s.updated_at)} · ${s.message_count} msg${s.message_count === 1 ? "" : "s"}</span>
       <button class="session-delete" title="Delete conversation">✕</button>
     `;
@@ -1066,6 +1125,8 @@ function renderSessionList(sessions) {
     el.oncontextmenu = (e) => {
       e.preventDefault();
       showContextMenu(e.clientX, e.clientY, [
+        { label: "Rename", onClick: () => startRenameSession(el, s) },
+        { label: s.is_pinned ? "Unpin" : "Pin", onClick: () => toggleSessionPin(s.session_id, s.is_pinned) },
         { label: "Export as Markdown", onClick: () => exportSessionById(s.session_id) },
         {
           label: "Delete",
