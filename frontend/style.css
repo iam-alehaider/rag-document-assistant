@@ -1,5 +1,3 @@
-
-
 /* ============ Design tokens ============ */
 /* Default (no data-theme attribute yet, e.g. before JS runs) = dark theme */
 :root {
@@ -1082,7 +1080,11 @@ button {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 50;
+  /* Above the mobile sidebar overlay (150) and context menu (150), so
+     opening Settings/a source/the command palette always takes precedence
+     even if the mobile sidebar drawer is still open - below toasts (200),
+     which should stay visible over everything, including modals. */
+  z-index: 160;
 }
 .modal-card {
   width: 560px;
@@ -1144,6 +1146,17 @@ button {
   color: var(--text-secondary);
   flex-shrink: 0;
 }
+.modal-confidence-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+.modal-confidence-badge.is-strong { background: var(--success-soft); color: var(--success); }
+.modal-confidence-badge.is-good { background: var(--accent-soft); color: var(--accent); }
+.modal-confidence-badge.is-moderate { background: var(--warning-soft); color: var(--warning); }
+.modal-confidence-badge.is-weak { background: var(--danger-soft); color: var(--danger); }
 .modal-body {
   overflow-y: auto;
   font-size: 13.5px;
@@ -1151,6 +1164,7 @@ button {
   color: var(--text-primary);
   white-space: pre-wrap;
 }
+#source-modal-copy { align-self: flex-start; flex-shrink: 0; }
 
 /* ============ Toasts ============ */
 .toast-container {
@@ -1266,6 +1280,76 @@ button {
   font-size: 11px;
 }
 
+/* ============ Command palette ============ */
+#command-palette {
+  align-items: flex-start;
+  padding-top: 12vh;
+}
+.command-palette-card {
+  width: 560px;
+  max-width: 90vw;
+  max-height: 60vh;
+  background: rgba(28, 33, 43, 0.95);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .command-palette-card { background: var(--bg-elevated); }
+}
+.command-palette-input {
+  border: none;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  padding: 16px 20px;
+  font-size: 15px;
+  color: var(--text-primary);
+  font-family: inherit;
+  flex-shrink: 0;
+}
+.command-palette-input:focus { outline: none; }
+.command-palette-results {
+  overflow-y: auto;
+  padding: 8px;
+}
+.command-palette-group-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  padding: 10px 12px 4px;
+}
+.command-palette-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 13.5px;
+  color: var(--text-primary);
+}
+.command-palette-item:hover,
+.command-palette-item.is-active { background: var(--accent-soft); }
+.command-palette-item-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.command-palette-item-hint {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  flex-shrink: 0;
+  margin-left: 12px;
+}
+
 /* ============ Context menu ============ */
 .context-menu {
   position: fixed;
@@ -1351,12 +1435,49 @@ button {
 }
 
 /* ============ Responsive ============ */
+.mobile-menu-btn { display: none; }
+.sidebar-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 140;
+}
+
 @media (max-width: 860px) {
   .sidebar { width: 240px; }
   .msg-bubble, .source-list { max-width: 100%; }
   .landing-cards { grid-template-columns: 1fr; }
   .landing-hero-composer { flex-direction: column; }
   .landing-nav { padding: 16px 20px; }
+}
+
+/* True phone widths: the sidebar becomes a full-height overlay drawer
+   instead of a permanently-visible narrow column, which would otherwise
+   squeeze the chat area into an unusable sliver. */
+@media (max-width: 640px) {
+  .mobile-menu-btn { display: flex; margin-right: 10px; }
+  .sidebar-collapse-btn { display: none; } /* desktop-only collapse-to-icon control */
+
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 280px;
+    max-width: 82vw;
+    height: 100vh;
+    z-index: 150;
+    transform: translateX(-100%);
+    transition: transform 0.2s ease;
+  }
+  .sidebar.is-mobile-open {
+    transform: translateX(0);
+    box-shadow: var(--shadow-md);
+  }
+  .sidebar-backdrop:not(.hidden) { display: block; }
+
+  .composer { padding: 12px 14px; }
+  .chat-log { padding: 16px 14px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

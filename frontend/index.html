@@ -1,4 +1,5 @@
 
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -172,6 +173,8 @@
   <div id="app-panel" class="app-shell hidden">
 
     <!-- Sidebar -->
+    <div id="sidebar-backdrop" class="sidebar-backdrop hidden"></div>
+
     <aside class="sidebar">
       <div class="sidebar-brand">
         <span class="brand-mark">D</span>
@@ -195,7 +198,7 @@
         <div class="sidebar-section-label">Documents</div>
 
         <div class="doc-upload">
-          <input id="file-input" type="file" accept=".pdf,.txt,.md,.docx,.csv,.xlsx" class="file-input" />
+          <input id="file-input" type="file" accept=".pdf,.txt,.md,.docx,.csv,.xlsx" multiple class="file-input" />
           <button id="upload-btn" class="btn btn-secondary btn-block">Upload document</button>
           <p id="upload-status" class="upload-status"></p>
         </div>
@@ -209,6 +212,8 @@
     <!-- Main -->
     <div class="main-column">
       <header class="topbar">
+        <button id="mobile-menu-btn" class="btn-icon mobile-menu-btn" title="Open sidebar">☰</button>
+
         <div class="topbar-title">
           <span id="scope-label">All documents</span>
         </div>
@@ -265,13 +270,23 @@
           <div class="modal-relevance-fill" id="source-modal-relevance-fill"></div>
         </div>
         <span id="source-modal-relevance-pct" class="modal-relevance-pct">—</span>
+        <span id="source-modal-confidence" class="modal-confidence-badge">—</span>
       </div>
       <div class="modal-body" id="source-modal-text">—</div>
+      <button id="source-modal-copy" class="btn btn-secondary btn-sm">Copy citation</button>
     </div>
   </div>
 
   <!-- ===================== TOASTS ===================== -->
   <div id="toast-container" class="toast-container"></div>
+
+  <!-- ===================== COMMAND PALETTE ===================== -->
+  <div id="command-palette" class="modal-backdrop hidden">
+    <div class="command-palette-card">
+      <input id="command-palette-input" type="text" class="command-palette-input" placeholder="Type a command or search conversations…" autocomplete="off" />
+      <div id="command-palette-results" class="command-palette-results"></div>
+    </div>
+  </div>
 
   <!-- ===================== SETTINGS MODAL ===================== -->
   <div id="settings-modal" class="modal-backdrop hidden">
@@ -323,7 +338,7 @@
           <div class="settings-row"><span>New line</span><span class="shortcut-key">Shift + Enter</span></div>
           <div class="settings-row"><span>Stop generating</span><span class="shortcut-key">Esc</span></div>
           <div class="settings-row"><span>New conversation</span><span class="shortcut-key">Ctrl/Cmd + N</span></div>
-          <div class="settings-row"><span>Search conversations</span><span class="shortcut-key">Ctrl/Cmd + K</span></div>
+          <div class="settings-row"><span>Command palette</span><span class="shortcut-key">Ctrl/Cmd + K</span></div>
         </div>
 
         <div class="settings-panel hidden" id="settings-panel-about">
